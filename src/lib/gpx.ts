@@ -34,6 +34,7 @@ export type Segment = {
 
 const parser = new DOMParser();
 const serializer = new XMLSerializer();
+const GPX_NAMESPACE = "http://www.topografix.com/GPX/1/1";
 
 export function parseGpx(text: string, fileName: string): RouteData {
   const document = parser.parseFromString(text, "application/xml");
@@ -141,15 +142,15 @@ export function buildSegments(points: RoutePoint[], splitIndexes: number[]): Seg
 }
 
 export function exportSegmentGpx(route: RouteData, segment: Segment): string {
-  const doc = document.implementation.createDocument("http://www.topografix.com/GPX/1/1", "gpx");
+  const doc = document.implementation.createDocument(GPX_NAMESPACE, "gpx");
   const root = doc.documentElement;
   root.setAttribute("version", route.document.documentElement.getAttribute("version") || "1.1");
   root.setAttribute("creator", "gpxsplit");
 
-  const trk = doc.createElement("trk");
-  const name = doc.createElement("name");
+  const trk = doc.createElementNS(GPX_NAMESPACE, "trk");
+  const name = doc.createElementNS(GPX_NAMESPACE, "name");
   name.textContent = `${route.name} - ${segment.name}`;
-  const trkseg = doc.createElement("trkseg");
+  const trkseg = doc.createElementNS(GPX_NAMESPACE, "trkseg");
 
   route.points.slice(segment.start, segment.end + 1).forEach(point => {
     trkseg.appendChild(doc.importNode(point.trkpt, true));
