@@ -490,6 +490,11 @@ function ElevationProfile({
   const hoverLabelHeight = 58;
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
   const hoverLabelY = hoverY < 70 ? hoverY + 14 : hoverY - 62;
+  const slopeLegendStops = [-20, -10, 0, 10, 20];
+  const slopeLegendWidth = 166;
+  const slopeLegendHeight = 8;
+  const slopeLegendX = Math.max(padLeft + 8, plotRight - slopeLegendWidth - 12);
+  const slopeLegendY = padTop + 10;
 
   function indexFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
     if (!route) return null;
@@ -527,6 +532,11 @@ function ElevationProfile({
               <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.02" />
             </>
           )}
+        </linearGradient>
+        <linearGradient id="slope-legend-fill" x1="0" x2="1" y1="0" y2="0">
+          {slopeLegendStops.map(slope => (
+            <stop key={slope} offset={`${((slope + 20) / 40) * 100}%`} stopColor={getSlopeColor(slope)} />
+          ))}
         </linearGradient>
       </defs>
       <rect x="0" y="0" width={width} height={height} rx="0" className="fill-muted/40" />
@@ -572,6 +582,24 @@ function ElevationProfile({
           <circle cx={x(points[index]!.distance)} cy={plotBottom} r="3.5" className="fill-destructive stroke-background" strokeWidth="2" vectorEffect="non-scaling-stroke" />
         </g>
       ))}
+      {slopeStops.length > 0 && (
+        <g>
+          <rect x={slopeLegendX - 8} y={slopeLegendY - 10} width={slopeLegendWidth + 16} height="38" className="fill-background/90 stroke-border" vectorEffect="non-scaling-stroke" />
+          <text x={slopeLegendX} y={slopeLegendY - 1} className="fill-muted-foreground font-mono text-[10px]">
+            Slope
+          </text>
+          <rect x={slopeLegendX} y={slopeLegendY + 4} width={slopeLegendWidth} height={slopeLegendHeight} fill="url(#slope-legend-fill)" className="stroke-border" vectorEffect="non-scaling-stroke" />
+          <text x={slopeLegendX} y={slopeLegendY + 25} textAnchor="start" className="fill-muted-foreground font-mono text-[9px]">
+            {formatSlope(-20)}
+          </text>
+          <text x={slopeLegendX + slopeLegendWidth / 2} y={slopeLegendY + 25} textAnchor="middle" className="fill-muted-foreground font-mono text-[9px]">
+            {formatSlope(0)}
+          </text>
+          <text x={slopeLegendX + slopeLegendWidth} y={slopeLegendY + 25} textAnchor="end" className="fill-muted-foreground font-mono text-[9px]">
+            {formatSlope(20)}
+          </text>
+        </g>
+      )}
       {hover && (
         <>
           <line x1={hoverX} x2={hoverX} y1={padTop} y2={plotBottom} className="stroke-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
