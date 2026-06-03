@@ -16,7 +16,14 @@ import {
   type RouteData,
   type Segment,
 } from "@/lib/gpx";
-import { Download, Route, Trash2, Upload } from "lucide-react";
+import {
+  clearSavedRouteState,
+  loadSavedRouteState,
+  sanitizeActiveSegmentId,
+  sanitizeSplits,
+  saveRouteState,
+} from "@/lib/persistence";
+import { Download, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,11 +31,13 @@ import "./index.css";
 
 export function App() {
   const [route, setRoute] = useState<RouteData | null>(null);
+  const [sourceGpxText, setSourceGpxText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [splits, setSplits] = useState<number[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
+  const [persistenceReady, setPersistenceReady] = useState(false);
   const hoverIndexRef = useRef<number | null>(null);
   const mapDistanceRangeRef = useRef<DistanceRange | null>(null);
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
@@ -52,10 +61,54 @@ export function App() {
     setActiveSegmentId(current => (segments.some(segment => segment.id === current) ? current : (segments[0]?.id ?? null)));
   }, [segments.length]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSavedRoute() {
+      const saved = await loadSavedRouteState();
+      if (cancelled) return;
+
+      if (saved) {
+        try {
+          const parsed = parseGpx(saved.gpxText, saved.fileName);
+          const restoredSplits = sanitizeSplits(saved.splits, parsed.points.length);
+          const restoredSegments = buildSegments(parsed.points, restoredSplits);
+          setSourceGpxText(saved.gpxText);
+          setRoute(parsed);
+          setSplits(restoredSplits);
+          setActiveSegmentId(sanitizeActiveSegmentId(saved.activeSegmentId, restoredSegments.length));
+          setError(null);
+        } catch {
+          await clearSavedRouteState();
+        }
+      }
+
+      if (!cancelled) setPersistenceReady(true);
+    }
+
+    void restoreSavedRoute();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!persistenceReady || !route || !sourceGpxText) return;
+    void saveRouteState({
+      version: 1,
+      gpxText: sourceGpxText,
+      fileName: route.fileName,
+      splits: sanitizeSplits(splits, route.points.length),
+      activeSegmentId: sanitizeActiveSegmentId(activeSegmentId, segments.length),
+    });
+  }, [activeSegmentId, persistenceReady, route, segments.length, sourceGpxText, splits]);
+
   async function onUpload(file: File | undefined) {
     if (!file) return;
     try {
-      const parsed = parseGpx(await file.text(), file.name);
+      const gpxText = await file.text();
+      const parsed = parseGpx(gpxText, file.name);
+      setSourceGpxText(gpxText);
       setRoute(parsed);
       setSplits([]);
       setHoverIndexIfChanged(null);
@@ -65,6 +118,17 @@ export function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not parse GPX file.");
     }
+  }
+
+  async function forgetRoute() {
+    await clearSavedRouteState();
+    setRoute(null);
+    setSourceGpxText(null);
+    setSplits([]);
+    setHoverIndexIfChanged(null);
+    setMapDistanceRangeIfChanged(null);
+    setActiveSegmentId(null);
+    setError(null);
   }
 
   function toggleSplit(index: number) {
@@ -113,6 +177,10 @@ export function App() {
           <Button variant="outline" size="sm" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
             <Trash2 />
             <span className="hidden sm:inline">Clear splits</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={forgetRoute} disabled={!route}>
+            <X />
+            <span className="hidden sm:inline">Forget route</span>
           </Button>
           <UploadButton onFile={onUpload} variant={route ? "outline" : "default"} />
         </div>
