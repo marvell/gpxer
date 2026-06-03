@@ -1,6 +1,5 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   buildSegments,
@@ -28,14 +27,14 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [splits, setSplits] = useState<number[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const [selectedSegments, setSelectedSegments] = useState<Set<number>>(new Set());
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
-  const previousSegmentIdsRef = useRef<number[]>([]);
   const hoverIndexRef = useRef<number | null>(null);
   const mapDistanceRangeRef = useRef<DistanceRange | null>(null);
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
   const activeSegment = segments.find(segment => segment.id === activeSegmentId) ?? null;
+  const maxSegmentDistance = Math.max(0, ...segments.map(segment => segment.distance));
+  const maxSegmentAscent = Math.max(0, ...segments.map(segment => segment.ascent));
   const setHoverIndexIfChanged = useCallback((index: number | null) => {
     if (hoverIndexRef.current === index) return;
     hoverIndexRef.current = index;
@@ -50,14 +49,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const previousIds = previousSegmentIdsRef.current;
-    const nextIds = segments.map(segment => segment.id);
-    const nextIdSet = new Set(nextIds);
-    setSelectedSegments(current => {
-      const hadAllSelected = previousIds.every(id => current.has(id));
-      return hadAllSelected ? new Set(nextIds) : new Set([...current].filter(id => nextIdSet.has(id)));
-    });
-    previousSegmentIdsRef.current = nextIds;
     setActiveSegmentId(current => (segments.some(segment => segment.id === current) ? current : (segments[0]?.id ?? null)));
   }, [segments.length]);
 
@@ -94,10 +85,6 @@ export function App() {
       downloadText(`${safeFileName(route.name)}-${String(segment.id).padStart(2, "0")}.gpx`, exportSegmentGpx(route, segment));
     });
   }
-
-  const selected = segments.filter(segment => selectedSegments.has(segment.id));
-
-  const allSelected = segments.length > 0 && selected.length === segments.length;
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-muted/40 text-sm">
@@ -181,40 +168,23 @@ export function App() {
             </div>
 
             <div className="flex flex-col gap-2 border-b px-4 py-3">
-              <div className="grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" onClick={() => setSelectedSegments(allSelected ? new Set() : new Set(segments.map(s => s.id)))} disabled={!segments.length}>
-                  {allSelected ? "Deselect all" : "Select all"}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
-                  <Download />
-                  Export all
-                </Button>
-              </div>
-              <Button size="sm" className="w-full" onClick={() => downloadSegments(selected)} disabled={!selected.length}>
+              <Button size="sm" variant="outline" className="w-full" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
                 <Download />
-                Export selected ({selected.length})
+                Export all
               </Button>
             </div>
 
             <TooltipProvider>
-              <div className="min-h-0 flex-1 overflow-auto">
+              <div className="min-h-0 flex-1 space-y-1.5 overflow-auto p-2">
                 {segments.map(segment => (
                   <SegmentRow
                     key={segment.id}
                     segment={segment}
-                    checked={selectedSegments.has(segment.id)}
+                    distanceBalance={maxSegmentDistance > 0 ? segment.distance / maxSegmentDistance : 0}
+                    climbBalance={maxSegmentAscent > 0 ? segment.ascent / maxSegmentAscent : 0}
                     active={segment.id === activeSegmentId}
                     onSelect={() => setActiveSegmentId(segment.id)}
                     onExport={() => downloadSegments([segment])}
-                    onCheckedChange={checked => {
-                      setSelectedSegments(current => {
-                        const next = new Set(current);
-                        if (checked) next.add(segment.id);
-                        else next.delete(segment.id);
-                        return next;
-                      });
-                    }}
-                    onHover={setHoverIndexIfChanged}
                   />
                 ))}
               </div>
@@ -860,100 +830,133 @@ function formatPercent(value: number) {
 
 function SegmentRow({
   segment,
-  checked,
+  distanceBalance,
+  climbBalance,
   active,
   onSelect,
   onExport,
-  onCheckedChange,
-  onHover,
 }: {
   segment: Segment;
-  checked: boolean;
+  distanceBalance: number;
+  climbBalance: number;
   active: boolean;
   onSelect: () => void;
   onExport: () => void;
-  onCheckedChange: (checked: boolean) => void;
-  onHover: (index: number | null) => void;
 }) {
+  const uphillDistance = segment.slopeDistances.slice(4).reduce((total, item) => total + item.distance, 0);
+  const uphillPercent = segment.distance > 0 ? (uphillDistance / segment.distance) * 100 : 0;
+
   return (
     <div
-      role="button"
-      tabIndex={0}
-      className={`grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-l-2 p-3 text-left transition-colors last:border-b-0 hover:bg-muted/60 ${active ? "border-l-primary bg-muted" : "border-l-transparent"}`}
-      onClick={onSelect}
-      onKeyDown={event => {
-        if (event.key === "Enter" || event.key === " ") onSelect();
-      }}
-      onMouseEnter={() => onHover(segment.start)}
-      onMouseLeave={() => onHover(null)}
+      className={`relative w-full rounded-md border bg-background ${active ? "border-primary bg-muted/60" : "border-border"}`}
     >
-      <Checkbox
-        className="mt-0.5"
-        checked={checked}
-        onClick={event => event.stopPropagation()}
-        onCheckedChange={value => onCheckedChange(value === true)}
-      />
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className={SEGMENT_MARKER_CLASS}>
-            {segment.id}
-          </span>
-          <span className="truncate text-xs font-semibold uppercase tracking-wide">{segment.name}</span>
-          <Badge variant="outline" className="ml-auto font-mono tabular-nums">{formatDistance(segment.distance)}</Badge>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums text-muted-foreground">
-          <span>start {formatDistance(segment.startDistance)}</span>
-          <span>end {formatDistance(segment.endDistance)}</span>
-          <span>dist {formatDistance(segment.distance)}</span>
-          <span>↑ {formatElevation(segment.ascent)}</span>
-          <span>↓ {formatElevation(segment.descent)}</span>
-          <span>min {formatElevation(segment.minEle)}</span>
-          <span>max {formatElevation(segment.maxEle)}</span>
-        </div>
-        <div
-          className="mt-2 overflow-hidden rounded-[2px] border bg-muted"
-          onMouseEnter={event => {
-            event.stopPropagation();
-            onHover(null);
-          }}
-          onMouseMove={event => event.stopPropagation()}
-        >
-          <div className="flex h-7 w-full">
-            {segment.slopeDistances.filter(item => item.distance > 0).map(item => {
-              const percent = segment.distance > 0 ? (item.distance / segment.distance) * 100 : 0;
-              const label = `${formatPercent(percent)} · ${formatDistance(item.distance)}`;
-              return (
-                <Tooltip key={item.label}>
-                  <TooltipTrigger asChild>
-                    <div
-                      className="min-w-0"
-                      style={{ flexBasis: `${percent}%`, backgroundColor: item.color }}
-                      aria-label={`${item.label}: ${label}`}
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <div className="font-mono tabular-nums">
-                      <div>{item.label}</div>
-                      <div>{label}</div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
+      <button type="button" className="w-full cursor-pointer p-2.5 text-left" onClick={onSelect}>
+        <div className="flex items-start gap-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-2 pr-8">
+              <span className={SEGMENT_MARKER_CLASS}>
+                {segment.id}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold leading-5">{segment.name}</div>
+                <div className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                  {formatDistance(segment.startDistance)} → {formatDistance(segment.endDistance)}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              <SegmentMetric label="Distance" value={formatDistance(segment.distance)} progress={distanceBalance} strong />
+              <SegmentMetric
+                label="Climb"
+                value={`↑ ${formatElevation(segment.ascent)}`}
+                progress={climbBalance}
+              />
+              <SegmentMetric label="Drop" value={`↓ ${formatElevation(segment.descent)}`} />
+            </div>
+
+            <UphillSummary percent={uphillPercent} distance={uphillDistance} />
+
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <SegmentMetric label="Lowest" value={formatElevation(segment.minEle)} />
+              <SegmentMetric label="Highest" value={formatElevation(segment.maxEle)} />
+            </div>
+
+            <div className="mt-2 overflow-hidden rounded-[2px] border bg-muted">
+              <div className="flex h-6 w-full">
+                {segment.slopeDistances.filter(item => item.distance > 0).map(item => {
+                  const percent = segment.distance > 0 ? (item.distance / segment.distance) * 100 : 0;
+                  const label = `${formatPercent(percent)} · ${formatDistance(item.distance)}`;
+                  return (
+                    <Tooltip key={item.label}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="grid min-w-0 place-items-center overflow-hidden font-mono text-[10px] font-bold leading-none text-black/70 tabular-nums"
+                          style={{ flexBasis: `${percent}%`, backgroundColor: item.color }}
+                          aria-label={`${item.label}: ${label}`}
+                        >
+                          {percent >= 10 ? formatPercent(percent) : null}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="font-mono tabular-nums">
+                          <div>{item.label}</div>
+                          <div>{label}</div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </button>
       <Button
         size="icon-sm"
         variant="ghost"
         title="Export this segment"
-        onClick={event => {
-          event.stopPropagation();
-          onExport();
-        }}
+        className="absolute right-2.5 top-2.5 opacity-70"
+        onClick={onExport}
       >
         <Download />
       </Button>
+    </div>
+  );
+}
+
+function SegmentMetric({
+  label,
+  value,
+  progress,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  progress?: number;
+  strong?: boolean;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-md border bg-background px-2 py-1.5">
+      {progress !== undefined && (
+        <div className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${Math.max(0, Math.min(progress, 1)) * 100}%` }} />
+      )}
+      <div className="relative text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`relative mt-0.5 font-mono text-xs tabular-nums ${strong ? "font-bold text-foreground" : "text-foreground/85"}`}>{value}</div>
+    </div>
+  );
+}
+
+function UphillSummary({ percent, distance }: { percent: number; distance: number }) {
+  return (
+    <div className="mt-1.5 grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-md border bg-background px-2 py-1.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Uphill &gt;1%</div>
+      <div className="h-1.5 overflow-hidden rounded-[1px] bg-muted">
+        <div className="h-full bg-chart-4/70" style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }} />
+      </div>
+      <div className="font-mono text-[11px] font-semibold tabular-nums">
+        {formatPercent(percent)} · {formatDistance(distance)}
+      </div>
     </div>
   );
 }
