@@ -122,7 +122,7 @@ export function App() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" className="rounded-none" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
+          <Button variant="outline" size="sm" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
             <Trash2 />
             Clear splits
           </Button>
@@ -150,14 +150,14 @@ export function App() {
                 onVisibleRange={setMapDistanceRangeIfChanged}
               />
               <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-1.5 text-[11px]">
-                <span className="bg-background/90 px-2 py-1 font-medium shadow-sm backdrop-blur">Click track to split</span>
-                <span className="bg-background/90 px-2 py-1 font-medium shadow-sm backdrop-blur">Click marker to merge</span>
+                <span className={HINT_CHIP_CLASS}>Click track to split</span>
+                <span className={HINT_CHIP_CLASS}>Click marker to merge</span>
               </div>
             </div>
             <div className="flex min-h-[160px] min-w-0 flex-col bg-background">
               <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
                 <div className="text-xs font-semibold uppercase tracking-wide">Elevation profile</div>
-                <Badge variant="outline" className="rounded-none font-mono tabular-nums">{route.points.length.toLocaleString()} pts</Badge>
+                <SlopeLegend />
               </div>
               <div className="min-h-0 min-w-0 flex-1 p-3">
                 <ElevationProfile
@@ -176,20 +176,20 @@ export function App() {
           <aside className="flex min-h-0 flex-col bg-background">
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
               <div className="text-xs font-semibold uppercase tracking-wide">Segments</div>
-              <Badge variant="secondary" className="rounded-none font-mono tabular-nums">{segments.length} total</Badge>
+              <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
             </div>
 
             <div className="flex flex-col gap-2 border-b px-4 py-3">
               <div className="grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" className="rounded-none" onClick={() => setSelectedSegments(allSelected ? new Set() : new Set(segments.map(s => s.id)))} disabled={!segments.length}>
+                <Button size="sm" variant="outline" onClick={() => setSelectedSegments(allSelected ? new Set() : new Set(segments.map(s => s.id)))} disabled={!segments.length}>
                   {allSelected ? "Deselect all" : "Select all"}
                 </Button>
-                <Button size="sm" variant="outline" className="rounded-none" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
+                <Button size="sm" variant="outline" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
                   <Download />
                   Export all
                 </Button>
               </div>
-              <Button size="sm" className="w-full rounded-none" onClick={() => downloadSegments(selected)} disabled={!selected.length}>
+              <Button size="sm" className="w-full" onClick={() => downloadSegments(selected)} disabled={!selected.length}>
                 <Download />
                 Export selected ({selected.length})
               </Button>
@@ -224,13 +224,35 @@ export function App() {
 }
 
 const GPX_ACCEPT = ".gpx,application/gpx+xml,text/xml,application/xml";
+const HINT_CHIP_CLASS = "rounded-md border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur";
+const SEGMENT_MARKER_CLASS = "grid size-5 shrink-0 place-items-center rounded-[1px] border-2 border-background bg-destructive font-mono text-[10px] font-bold leading-none text-white shadow-sm";
 type DistanceRange = { start: number; end: number };
 type ProfilePoint = Pick<RouteData["points"][number], "distance" | "ele">;
 type ProfileSlopeSegment = ReturnType<typeof calculateProfileSlopeSegments>[number];
 
+function cssColor(variable: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  return /^(#|rgb\(|rgba\(|hsl\(|hsla\()/i.test(value) ? value : fallback;
+}
+
+function mapSplitMarkerImage(fill: string, stroke: string) {
+  const size = 22;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.fillStyle = stroke;
+  context.fillRect(0, 0, size, size);
+  context.fillStyle = fill;
+  context.fillRect(2, 2, size - 4, size - 4);
+  return context.getImageData(0, 0, size, size);
+}
+
 function UploadButton({ onFile, variant }: { onFile: (file: File | undefined) => void; variant: "default" | "outline" }) {
   return (
-    <Button asChild size="sm" variant={variant} className="rounded-none">
+    <Button asChild size="sm" variant={variant}>
       <label className="cursor-pointer">
         <Upload />
         Upload GPX
@@ -245,6 +267,33 @@ function StatPill({ label, value, last }: { label: string; value: string; last?:
     <div className={`flex flex-col justify-center px-3 py-1 ${last ? "" : "border-r"}`}>
       <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="font-mono text-xs font-semibold tabular-nums leading-tight">{value}</span>
+    </div>
+  );
+}
+
+function SlopeLegend() {
+  const bounds = SLOPE_CLASSES.slice(0, -1).map(slopeClass => slopeClass.maxSlope);
+  return (
+    <div className="ml-auto hidden min-w-0 items-center justify-end gap-2 sm:flex">
+      <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Slope</span>
+      <div className="flex w-[260px] max-w-[40vw] flex-col gap-0.5">
+        <div className="grid h-2 overflow-hidden rounded-[1px] border" style={{ gridTemplateColumns: `repeat(${SLOPE_CLASSES.length}, minmax(0, 1fr))` }}>
+          {SLOPE_CLASSES.map(slopeClass => (
+            <span key={slopeClass.label} style={{ backgroundColor: slopeClass.color }} />
+          ))}
+        </div>
+        <div className="relative h-3.5 font-mono text-[9px] leading-none text-muted-foreground tabular-nums">
+          {bounds.map((bound, index) => (
+            <span
+              key={bound}
+              className="absolute top-0 min-w-7 -translate-x-1/2 whitespace-nowrap text-center"
+              style={{ left: `${((index + 1) / SLOPE_CLASSES.length) * 100}%` }}
+            >
+              {bound > 0 ? `+${bound}%` : `${bound}%`}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -274,9 +323,9 @@ function Dropzone({ onFile }: { onFile: (file: File | undefined) => void }) {
           <div className="mt-1 text-sm text-muted-foreground">or click to browse — split a route into multi-day segments</div>
         </div>
         <div className="flex flex-wrap justify-center gap-2 text-[11px] text-muted-foreground">
-          <span className="border px-2 py-1">Click track to split</span>
-          <span className="border px-2 py-1">Click marker to merge</span>
-          <span className="border px-2 py-1">Export unchanged GPX</span>
+          <span className={HINT_CHIP_CLASS}>Click track to split</span>
+          <span className={HINT_CHIP_CLASS}>Click marker to merge</span>
+          <span className={HINT_CHIP_CLASS}>Export unchanged GPX</span>
         </div>
         <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
       </label>
@@ -313,7 +362,7 @@ function RouteMap({
     () => (route && activeSegment ? segmentLineData(route, activeSegment) : emptyLine().data),
     [route, activeSegment],
   );
-  const splitPointData = useMemo(() => (route ? pointData(route, splits) : emptyPoints().data), [route, splits]);
+  const splitPointData = useMemo(() => (route ? splitPointDataForRoute(route, splits) : emptyPoints().data), [route, splits]);
   const hoverPointData = useMemo(
     () => (route ? pointData(route, hoverIndex === null ? [] : [hoverIndex]) : emptyPoints().data),
     [route, hoverIndex],
@@ -349,11 +398,34 @@ function RouteMap({
       map.addSource("active-segment", emptyLine());
       map.addSource("splits", emptyPoints());
       map.addSource("hover", emptyPoints());
-      map.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": "#0072bb", "line-width": 4 } });
-      map.addLayer({ id: "active-segment-line", type: "line", source: "active-segment", paint: { "line-color": "#1e91d6", "line-width": 7, "line-opacity": 0.9 } });
+      const routeColor = cssColor("--primary", "#0072bb");
+      const activeColor = cssColor("--ring", "#1e91d6");
+      const backgroundColor = cssColor("--background", "#fff");
+      const splitColor = cssColor("--destructive", "#e18335");
+      const splitMarkerImage = mapSplitMarkerImage(splitColor, backgroundColor);
+      if (splitMarkerImage && !map.hasImage("split-marker")) {
+        map.addImage("split-marker", splitMarkerImage);
+      }
+      map.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": routeColor, "line-width": 4 } });
+      map.addLayer({ id: "active-segment-line", type: "line", source: "active-segment", paint: { "line-color": activeColor, "line-width": 7, "line-opacity": 0.9 } });
       map.addLayer({ id: "route-hit", type: "line", source: "route", paint: { "line-color": "#000", "line-opacity": 0.01, "line-width": 28 } });
-      map.addLayer({ id: "hover-point", type: "circle", source: "hover", paint: { "circle-radius": 7, "circle-color": "#1e91d6", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
-      map.addLayer({ id: "split-points", type: "circle", source: "splits", paint: { "circle-radius": 6, "circle-color": "#e18335", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
+      map.addLayer({ id: "hover-point", type: "circle", source: "hover", paint: { "circle-radius": 7, "circle-color": activeColor, "circle-stroke-width": 2, "circle-stroke-color": backgroundColor } });
+      map.addLayer({
+        id: "split-points",
+        type: "symbol",
+        source: "splits",
+        layout: {
+          "icon-image": "split-marker",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "text-field": ["get", "label"],
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-size": 11,
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: { "text-color": "#fff" },
+      });
 
       const move = (event: maplibregl.MapMouseEvent) => {
         const activeRoute = routeRef.current;
@@ -375,8 +447,11 @@ function RouteMap({
         if (routeIndex !== null) onToggleSplitRef.current(routeIndex);
       };
       const leave = () => onHoverRef.current(null);
-      const pointer = () => {
+      const crosshair = () => {
         map.getCanvas().style.cursor = "crosshair";
+      };
+      const pointer = () => {
+        map.getCanvas().style.cursor = "pointer";
       };
       const resetPointer = () => {
         map.getCanvas().style.cursor = "";
@@ -389,9 +464,9 @@ function RouteMap({
       map.on("mousemove", "route-hit", move);
       map.on("click", click);
       map.on("moveend", reportVisibleRange);
-      map.on("mouseenter", "route-hit", pointer);
+      map.on("mouseenter", "route-hit", crosshair);
       map.on("mouseenter", "split-points", pointer);
-      map.on("mouseenter", "hover-point", pointer);
+      map.on("mouseenter", "hover-point", crosshair);
       map.on("mouseleave", "route-hit", leave);
       map.on("mouseleave", "route-hit", resetPointer);
       map.on("mouseleave", "split-points", resetPointer);
@@ -434,7 +509,7 @@ function RouteMap({
       (map.getSource("splits") as GeoJSONSource | undefined)?.setData(splitPointData);
     };
     map.getSource("splits") ? update() : map.once("load", update);
-  }, [route, splitPointData]);
+  }, [route, splitPointData, splits]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -541,13 +616,6 @@ function ElevationProfile({
   const hoverLabelHeight = 58;
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
   const hoverLabelY = hoverY < 70 ? hoverY + 14 : hoverY - 62;
-  const slopeLegendWidth = Math.min(320, Math.max(200, plotWidth - 24));
-  const slopeLegendHeight = 8;
-  const slopeLegendSegment = slopeLegendWidth / SLOPE_CLASSES.length;
-  const slopeLegendBounds = [-8, -4, -1, 1, 4, 7, 10];
-  const slopeLegendX = Math.max(padLeft + 8, plotRight - slopeLegendWidth - 12);
-  const slopeLegendY = padTop + 10;
-
   function indexFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
     if (!route) return null;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -621,43 +689,22 @@ function ElevationProfile({
           vectorEffect="non-scaling-stroke"
         />
       )}
-      {splits.filter(index => points[index]!.distance >= profileRange.start && points[index]!.distance <= profileRange.end).map(index => (
-        <g key={index}>
-          <line x1={x(points[index]!.distance)} x2={x(points[index]!.distance)} y1={padTop} y2={plotBottom} className="stroke-destructive" strokeDasharray="4 4" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-          <circle cx={x(points[index]!.distance)} cy={plotBottom} r="3.5" className="fill-destructive stroke-background" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        </g>
-      ))}
-      {slopeStops.length > 0 && (
-        <g>
-          <rect x={slopeLegendX - 8} y={slopeLegendY - 10} width={slopeLegendWidth + 16} height="38" className="fill-background/90 stroke-border" vectorEffect="non-scaling-stroke" />
-          <text x={slopeLegendX} y={slopeLegendY - 1} className="fill-muted-foreground font-mono text-[10px]">
-            Slope
-          </text>
-          {SLOPE_CLASSES.map((slopeClass, index) => (
-            <rect
-              key={slopeClass.label}
-              x={slopeLegendX + index * slopeLegendSegment}
-              y={slopeLegendY + 4}
-              width={slopeLegendSegment}
-              height={slopeLegendHeight}
-              fill={slopeClass.color}
-              className="stroke-border"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
-          {slopeLegendBounds.map((bound, index) => (
-            <text
-              key={bound}
-              x={slopeLegendX + (index + 1) * slopeLegendSegment}
-              y={slopeLegendY + 25}
-              textAnchor="middle"
-              className="fill-muted-foreground font-mono text-[9px]"
-            >
-              {bound > 0 ? `+${bound}` : bound}
-            </text>
-          ))}
-        </g>
-      )}
+      {splits
+        .map((index, splitPosition) => {
+          if (points[index]!.distance < profileRange.start || points[index]!.distance > profileRange.end) return null;
+          const label = String(splitPosition + 1);
+          const splitX = x(points[index]!.distance);
+          const markerSize = label.length > 1 ? 20 : 16;
+          return (
+            <g key={index}>
+              <line x1={splitX} x2={splitX} y1={padTop} y2={plotBottom} className="stroke-destructive" strokeDasharray="4 4" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+              <rect x={splitX - markerSize / 2} y={plotBottom - markerSize / 2} width={markerSize} height={markerSize} rx="1" className="fill-destructive stroke-background" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+              <text x={splitX} y={plotBottom} textAnchor="middle" dominantBaseline="middle" className="fill-white font-mono text-[10px] font-bold">
+                {label}
+              </text>
+            </g>
+          );
+        })}
       {hover && (
         <>
           <line x1={hoverX} x2={hoverX} y1={padTop} y2={plotBottom} className="stroke-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
@@ -825,7 +872,7 @@ function SegmentRow({
     <div
       role="button"
       tabIndex={0}
-      className={`grid w-full grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-l-2 p-3 text-left transition-colors last:border-b-0 hover:bg-muted/60 ${active ? "border-l-primary bg-muted" : "border-l-transparent"}`}
+      className={`grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-l-2 p-3 text-left transition-colors last:border-b-0 hover:bg-muted/60 ${active ? "border-l-primary bg-muted" : "border-l-transparent"}`}
       onClick={onSelect}
       onKeyDown={event => {
         if (event.key === "Enter" || event.key === " ") onSelect();
@@ -834,18 +881,18 @@ function SegmentRow({
       onMouseLeave={() => onHover(null)}
     >
       <Checkbox
-        className="mt-0.5 rounded-none"
+        className="mt-0.5"
         checked={checked}
         onClick={event => event.stopPropagation()}
         onCheckedChange={value => onCheckedChange(value === true)}
       />
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className={`grid size-5 shrink-0 place-items-center font-mono text-[10px] font-semibold ${active ? "bg-primary text-primary-foreground" : "bg-muted-foreground/15 text-foreground"}`}>
+          <span className={SEGMENT_MARKER_CLASS}>
             {segment.id}
           </span>
           <span className="truncate text-xs font-semibold uppercase tracking-wide">{segment.name}</span>
-          <Badge variant="outline" className="ml-auto rounded-none font-mono tabular-nums">{formatDistance(segment.distance)}</Badge>
+          <Badge variant="outline" className="ml-auto font-mono tabular-nums">{formatDistance(segment.distance)}</Badge>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums text-muted-foreground">
           <span>↑ {formatElevation(segment.ascent)}</span>
@@ -858,7 +905,6 @@ function SegmentRow({
       <Button
         size="icon-sm"
         variant="ghost"
-        className="rounded-none"
         title="Export this segment"
         onClick={event => {
           event.stopPropagation();
@@ -914,15 +960,23 @@ function segmentBounds(route: RouteData, segment: Segment): [[number, number], [
   return bounds;
 }
 
-function pointData(route: RouteData, indexes: number[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
+function pointData(
+  route: RouteData,
+  indexes: number[],
+  propertiesForIndex: (index: number, position: number) => GeoJSON.GeoJsonProperties = index => ({ index }),
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
   return {
     type: "FeatureCollection",
-    features: indexes.map(index => ({
+    features: indexes.map((index, position) => ({
       type: "Feature",
-      properties: { index },
+      properties: propertiesForIndex(index, position),
       geometry: { type: "Point", coordinates: [route.points[index]!.lon, route.points[index]!.lat] },
     })),
   };
+}
+
+function splitPointDataForRoute(route: RouteData, indexes: number[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  return pointData(route, indexes, (index, splitPosition) => ({ index, label: String(splitPosition + 1) }));
 }
 
 function nearestLngLat(route: RouteData, lon: number, lat: number) {
