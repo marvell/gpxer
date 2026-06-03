@@ -5,7 +5,13 @@ services:
     build:
       context: ../..
       dockerfile: ops/build/Dockerfile
+      args:
+        BUN_PUBLIC_POSTHOG_KEY: ${BUN_PUBLIC_POSTHOG_KEY:-}
+        BUN_PUBLIC_POSTHOG_HOST: ${BUN_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}
     command: bun run start
+    environment:
+      BUN_PUBLIC_POSTHOG_KEY: ${BUN_PUBLIC_POSTHOG_KEY:-}
+      BUN_PUBLIC_POSTHOG_HOST: ${BUN_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}
     restart: unless-stopped
     networks:
       - dokploy-network

@@ -50,9 +50,9 @@ export function parseGpx(text: string, fileName: string): RouteData {
   const error = document.querySelector("parsererror");
   if (error) throw new Error("GPX file is not valid XML.");
 
-  const sourceSegments = [...document.querySelectorAll("trkseg")].map((trkseg, sourceSegment) => ({
+  const sourceSegments = Array.from(document.querySelectorAll("trkseg")).map((trkseg, sourceSegment) => ({
     sourceSegment,
-    trkpts: [...trkseg.querySelectorAll("trkpt")],
+    trkpts: Array.from(trkseg.querySelectorAll("trkpt")),
   }));
   const trkpts = sourceSegments.flatMap(segment => segment.trkpts);
   if (trkpts.length < 2) throw new Error("GPX file must contain at least two track points.");

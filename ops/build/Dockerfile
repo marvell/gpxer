@@ -7,6 +7,13 @@ COPY styles ./styles
 
 RUN bun install --frozen-lockfile
 
+ARG BUN_PUBLIC_POSTHOG_KEY=""
+ARG BUN_PUBLIC_POSTHOG_HOST="https://eu.i.posthog.com"
+ENV BUN_PUBLIC_POSTHOG_KEY=$BUN_PUBLIC_POSTHOG_KEY
+ENV BUN_PUBLIC_POSTHOG_HOST=$BUN_PUBLIC_POSTHOG_HOST
+
+RUN bun run build
+
 FROM oven/bun:1.3 AS runtime
 WORKDIR /workspace
 

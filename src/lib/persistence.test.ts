@@ -65,10 +65,13 @@ function installFakeIndexedDb() {
   let storeCreated = false;
   const fakeIndexedDb = {
     open() {
-      const request: Partial<IDBOpenDBRequest> & { result?: FakeDb } = {};
+      const request = {} as IDBOpenDBRequest & { result: FakeDb };
       queueMicrotask(() => {
-        request.result = new FakeDb(data, () => storeCreated, () => {
-          storeCreated = true;
+        Object.defineProperty(request, "result", {
+          configurable: true,
+          value: new FakeDb(data, () => storeCreated, () => {
+            storeCreated = true;
+          }),
         });
         if (!storeCreated) request.onupgradeneeded?.({} as IDBVersionChangeEvent);
         request.onsuccess?.({} as Event);
@@ -120,9 +123,9 @@ class FakeDb {
 }
 
 function fakeRequest<T>(result: T) {
-  const request: Partial<IDBRequest<T>> = {};
+  const request = {} as IDBRequest<T>;
   queueMicrotask(() => {
-    request.result = result;
+    Object.defineProperty(request, "result", { configurable: true, value: result });
     request.onsuccess?.({} as Event);
   });
   return request as IDBRequest<T>;

@@ -16,6 +16,8 @@ const result = await Bun.build({
   sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
+    "process.env.BUN_PUBLIC_POSTHOG_KEY": JSON.stringify(process.env.BUN_PUBLIC_POSTHOG_KEY ?? ""),
+    "process.env.BUN_PUBLIC_POSTHOG_HOST": JSON.stringify(process.env.BUN_PUBLIC_POSTHOG_HOST ?? "https://eu.i.posthog.com"),
   },
 });
 

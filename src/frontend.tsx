@@ -5,14 +5,27 @@
  * It is included in `src/index.html`.
  */
 
+import { PostHogErrorBoundary, PostHogProvider } from "@posthog/react";
+import posthog from "posthog-js";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { initPostHog } from "./lib/posthog";
 
 const elem = document.getElementById("root")!;
+const isPostHogEnabled = initPostHog();
+const rootApp = isPostHogEnabled ? (
+  <PostHogProvider client={posthog}>
+    <PostHogErrorBoundary>
+      <App />
+    </PostHogErrorBoundary>
+  </PostHogProvider>
+) : (
+  <App />
+);
 const app = (
   <StrictMode>
-    <App />
+    {rootApp}
   </StrictMode>
 );
 

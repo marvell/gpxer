@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -27,12 +28,13 @@ import {
   saveRouteState,
 } from "@/lib/persistence";
 import { Download, Route, Trash2, Upload, X } from "lucide-react";
-import maplibregl, { type GeoJSONSource, type Map } from "maplibre-gl";
+import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 
 export function App() {
+  const posthogClient: ReturnType<typeof usePostHog> = usePostHog();
   const [route, setRoute] = useState<RouteData | null>(null);
   const [sourceGpxText, setSourceGpxText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,11 +109,13 @@ export function App() {
     });
   }, [activeSegmentId, persistenceReady, route, segments.length, sourceGpxText, splits]);
 
-  async function onUpload(file: File | undefined) {
+  async function onUpload(file: File | undefined, source: GpxUploadSource) {
     if (!file) return;
+    posthogClient?.capture(GPX_UPLOAD_STARTED_EVENT, { source });
     try {
       const gpxText = await file.text();
       const parsed = parseGpx(gpxText, file.name);
+      posthogClient?.capture(GPX_UPLOAD_SUCCEEDED_EVENT, routeAnalyticsProperties(parsed, 0));
       setSourceGpxText(gpxText);
       setRoute(parsed);
       setSplits([]);
@@ -121,11 +125,15 @@ export function App() {
       setPendingConfirmation(null);
       setError(null);
     } catch (reason) {
+      posthogClient?.capture(GPX_UPLOAD_FAILED_EVENT, { source });
       setError(reason instanceof Error ? reason.message : "Could not parse GPX file.");
     }
   }
 
   async function forgetRoute() {
+    if (route) {
+      posthogClient?.capture(GPX_ROUTE_CLOSED_EVENT, routeAnalyticsProperties(route, splits.length));
+    }
     await clearSavedRouteState();
     setRoute(null);
     setSourceGpxText(null);
@@ -152,18 +160,21 @@ export function App() {
 
   function toggleSplit(index: number) {
     if (!route || index <= 0 || index >= route.points.length - 1) return;
-    setSplits(current => {
-      const exists = current.includes(index);
-      const next = exists ? current.filter(split => split !== index) : [...current, index].sort((a, b) => a - b);
-      const sortedCurrent = [...current].sort((a, b) => a - b);
-      const splitPosition = exists ? sortedCurrent.indexOf(index) + 1 : next.indexOf(index) + 1;
-      setActiveSegmentId(Math.max(1, splitPosition));
-      return next;
-    });
+    const exists = splits.includes(index);
+    const nextSplits = exists ? splits.filter(split => split !== index) : [...splits, index].sort((a, b) => a - b);
+    posthogClient?.capture(exists ? GPX_SPLIT_REMOVED_EVENT : GPX_SPLIT_ADDED_EVENT, routeAnalyticsProperties(route, nextSplits.length));
+    const sortedCurrent = [...splits].sort((a, b) => a - b);
+    const splitPosition = exists ? sortedCurrent.indexOf(index) + 1 : nextSplits.indexOf(index) + 1;
+    setActiveSegmentId(Math.max(1, splitPosition));
+    setSplits(nextSplits);
   }
 
-  function downloadSegments(targetSegments: Segment[]) {
+  function downloadSegments(targetSegments: Segment[], source: GpxExportSource) {
     if (!route) return;
+    posthogClient?.capture(source === "all" ? GPX_EXPORT_ALL_CLICKED_EVENT : GPX_EXPORT_SEGMENT_CLICKED_EVENT, {
+      ...routeAnalyticsProperties(route, splits.length),
+      exported_segments: targetSegments.length,
+    });
     targetSegments.forEach(segment => {
       downloadText(`${safeFileName(route.name)}-${String(segment.id).padStart(2, "0")}.gpx`, exportSegmentGpx(route, segment));
     });
@@ -199,7 +210,10 @@ export function App() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => route && confirmOrRun(CONFIRMATION_ACTION.clear, () => setSplits([]))}
+                  onClick={() => route && confirmOrRun(CONFIRMATION_ACTION.clear, () => {
+                    posthogClient?.capture(GPX_SPLITS_CLEARED_EVENT, routeAnalyticsProperties(route, 0));
+                    setSplits([]);
+                  })}
                   onMouseLeave={() => resetConfirmation(CONFIRMATION_ACTION.clear)}
                   disabled={!route || splits.length === 0}
                 >
@@ -294,7 +308,7 @@ export function App() {
             <div className="flex flex-col gap-2 border-b px-4 py-3">
               <HelpTooltip content={splits.length === 0 ? "Download the unchanged route as one GPX file." : "Download one GPX file for each segment."}>
                 <span className="inline-flex w-full">
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => downloadSegments(segments, "all")} disabled={!segments.length}>
                     <Download />
                     Export all
                   </Button>
@@ -311,7 +325,7 @@ export function App() {
                   climbBalance={maxSegmentAscent > 0 ? segment.ascent / maxSegmentAscent : 0}
                   active={segment.id === activeSegmentId}
                   onSelect={() => setActiveSegmentId(segment.id)}
-                  onExport={() => downloadSegments([segment])}
+                  onExport={() => downloadSegments([segment], "segment")}
                 />
               ))}
             </div>
@@ -334,6 +348,8 @@ const HINT_CHIP_CLASS = "rounded-[2px] border bg-background/90 px-2 py-1 text-[1
 const SEGMENT_MARKER_CLASS = "grid size-5 shrink-0 place-items-center rounded-[1px] border-2 border-background bg-destructive font-mono text-[10px] font-bold leading-none text-white";
 type DistanceRange = { start: number; end: number };
 type ConfirmationAction = (typeof CONFIRMATION_ACTION)[keyof typeof CONFIRMATION_ACTION];
+type GpxUploadSource = "dropzone" | "file-picker";
+type GpxExportSource = "all" | "segment";
 type ConfirmationState = {
   required: boolean;
   active: boolean;
@@ -342,6 +358,27 @@ type ConfirmationState = {
 };
 type ProfilePoint = Pick<RouteData["points"][number], "distance" | "ele">;
 type ProfileSlopeSegment = ReturnType<typeof calculateProfileSlopeSegments>[number];
+
+const GPX_UPLOAD_STARTED_EVENT = "gpx_upload_started";
+const GPX_UPLOAD_SUCCEEDED_EVENT = "gpx_upload_succeeded";
+const GPX_UPLOAD_FAILED_EVENT = "gpx_upload_failed";
+const GPX_SPLIT_ADDED_EVENT = "gpx_split_added";
+const GPX_SPLIT_REMOVED_EVENT = "gpx_split_removed";
+const GPX_SPLITS_CLEARED_EVENT = "gpx_splits_cleared";
+const GPX_ROUTE_CLOSED_EVENT = "gpx_route_closed";
+const GPX_EXPORT_ALL_CLICKED_EVENT = "gpx_export_all_clicked";
+const GPX_EXPORT_SEGMENT_CLICKED_EVENT = "gpx_export_segment_clicked";
+
+function routeAnalyticsProperties(route: RouteData, splitCount: number) {
+  return {
+    point_count: route.points.length,
+    split_count: splitCount,
+    segment_count: splitCount + 1,
+    total_distance_m: Math.round(route.totalDistance),
+    ascent_m: Math.round(route.ascent),
+    descent_m: Math.round(route.descent),
+  };
+}
 
 function cssColor(variable: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
@@ -368,7 +405,7 @@ function UploadButton({
   variant,
   confirmation,
 }: {
-  onFile: (file: File | undefined) => void;
+  onFile: (file: File | undefined, source: GpxUploadSource) => void;
   variant: "default" | "outline";
   confirmation: ConfirmationState;
 }) {
@@ -388,7 +425,7 @@ function UploadButton({
       <Button size="sm" variant={variant} onClick={openFilePicker} onMouseLeave={confirmation.clear}>
         <Upload />
         {confirmation.active ? CONFIRM_LABEL : "Upload GPX"}
-        <input ref={inputRef} type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
+        <input ref={inputRef} type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0], "file-picker")} />
       </Button>
     </HelpTooltip>
   );
@@ -456,7 +493,7 @@ function SlopeLegend() {
   );
 }
 
-function Dropzone({ onFile }: { onFile: (file: File | undefined) => void }) {
+function Dropzone({ onFile }: { onFile: (file: File | undefined, source: GpxUploadSource) => void }) {
   const [drag, setDrag] = useState(false);
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-6">
@@ -469,7 +506,7 @@ function Dropzone({ onFile }: { onFile: (file: File | undefined) => void }) {
         onDrop={event => {
           event.preventDefault();
           setDrag(false);
-          onFile(event.dataTransfer.files?.[0]);
+          onFile(event.dataTransfer.files?.[0], "dropzone");
         }}
         className={`flex w-full max-w-xl cursor-pointer flex-col items-center gap-5 border-2 border-dashed p-6 text-center transition-colors sm:p-12 ${drag ? "border-primary bg-muted" : "border-border bg-background hover:bg-muted/50"}`}
       >
@@ -490,7 +527,7 @@ function Dropzone({ onFile }: { onFile: (file: File | undefined) => void }) {
           <span className={HINT_CHIP_CLASS}>Last route is restored locally</span>
           <span className={HINT_CHIP_CLASS}>Use Forget route to clear it</span>
         </div>
-        <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
+        <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0], "dropzone")} />
       </label>
     </div>
   );
@@ -514,7 +551,7 @@ function RouteMap({
   onVisibleRange: (range: DistanceRange | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<Map | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const rafRef = useRef<number | null>(null);
   const routeRef = useRef<RouteData | null>(null);
   const onHoverRef = useRef(onHover);
@@ -1326,7 +1363,7 @@ function nearestLngLat(route: RouteData, lon: number, lat: number) {
   return best;
 }
 
-function markerIndexAtPoint(map: Map, point: maplibregl.PointLike) {
+function markerIndexAtPoint(map: MapLibreMap, point: maplibregl.PointLike) {
   const [x, y] = Array.isArray(point) ? point : [point.x, point.y];
   const features = map.queryRenderedFeatures(
     [
@@ -1339,7 +1376,7 @@ function markerIndexAtPoint(map: Map, point: maplibregl.PointLike) {
   return Number.isInteger(index) ? index : null;
 }
 
-function nearestScreenPoint(map: Map, route: RouteData, clickPoint: maplibregl.PointLike, maxPixels: number) {
+function nearestScreenPoint(map: MapLibreMap, route: RouteData, clickPoint: maplibregl.PointLike, maxPixels: number) {
   const [clickX, clickY] = Array.isArray(clickPoint) ? clickPoint : [clickPoint.x, clickPoint.y];
   let bestIndex: number | null = null;
   let bestDistance = maxPixels ** 2;
@@ -1356,7 +1393,7 @@ function nearestScreenPoint(map: Map, route: RouteData, clickPoint: maplibregl.P
   return bestIndex;
 }
 
-function visibleDistanceRange(map: Map, route: RouteData): DistanceRange | null {
+function visibleDistanceRange(map: MapLibreMap, route: RouteData): DistanceRange | null {
   const canvas = map.getCanvas();
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
