@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   buildSegments,
+  calculateElevationChange,
   calculateProfileSlopeSegments,
   downloadText,
   exportSegmentGpx,
@@ -218,6 +219,7 @@ export function App() {
               <div className="min-h-0 min-w-0 flex-1 px-2 pb-1.5 pt-3">
                 <ElevationProfile
                   route={route}
+                  segments={segments}
                   splits={splits}
                   hoverIndex={hoverIndex}
                   activeSegment={activeSegment}
@@ -569,6 +571,7 @@ function RouteMap({
 
 function ElevationProfile({
   route,
+  segments,
   splits,
   hoverIndex,
   activeSegment,
@@ -577,6 +580,7 @@ function ElevationProfile({
   onToggleSplit,
 }: {
   route: RouteData | null;
+  segments: Segment[];
   splits: number[];
   hoverIndex: number | null;
   activeSegment: Segment | null;
@@ -585,6 +589,7 @@ function ElevationProfile({
   onToggleSplit: (index: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const climbCacheRef = useRef<{ points: RouteData["points"]; values: Map<string, number> }>({ points: [], values: new Map() });
   const [size, setSize] = useState({ width: 1200, height: 180 });
 
   useEffect(() => {
@@ -649,14 +654,37 @@ function ElevationProfile({
   const { activeRange, activePath, areaPath, path, slopeStops, x, y, yTicks } = profile;
   const hoverPoint = hoverIndex === null ? null : points[hoverIndex];
   const hover = hoverPoint && hoverPoint.distance >= profileRange.start && hoverPoint.distance <= profileRange.end ? hoverPoint : null;
+  const hoverSegment = hover ? segments.find(segment => hover.index >= segment.start && hover.index <= segment.end) ?? null : null;
+  const hoverSegmentDistance = hover && hoverSegment ? hover.distance - hoverSegment.startDistance : null;
+  const hoverClimb = useMemo(() => {
+    if (!hover || !hoverSegment) return null;
+    if (climbCacheRef.current.points !== points) climbCacheRef.current = { points, values: new Map() };
+
+    const cacheKey = `${hoverSegment.start}:${hover.index}`;
+    const cached = climbCacheRef.current.values.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const ascent = calculateElevationChange(points.slice(hoverSegment.start, hover.index + 1)).ascent;
+    climbCacheRef.current.values.set(cacheKey, ascent);
+    return ascent;
+  }, [hover, hoverSegment, points]);
   const hoverSlope = hover ? slopeDetailAtDistance(visiblePoints, profileSlopeSegments, hover.distance) : null;
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
-  const hoverLabelWidth = 138;
-  const hoverLabelHeight = 58;
+  const hoverLabelWidth = 220;
+  const hoverSectionHeight = 44;
+  const hoverSectionGap = 4;
+  const hoverLabelHeight = hoverSegment ? 152 : 104;
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
-  const hoverLabelY = hoverY < 70 ? hoverY + 14 : hoverY - 62;
+  const preferredHoverLabelY = hoverY < height / 2 ? hoverY + 14 : hoverY - hoverLabelHeight - 8;
+  const hoverLabelMaxY = Math.max(padTop + 6, height - hoverLabelHeight - 6);
+  const hoverLabelY = Math.min(hoverLabelMaxY, Math.max(padTop + 6, preferredHoverLabelY));
+  const hoverLabelLeft = hoverLabelX + 12;
+  const hoverValueRight = hoverLabelX + hoverLabelWidth - 12;
+  const trackSectionY = hoverLabelY + 8;
+  const segmentSectionY = trackSectionY + hoverSectionHeight + hoverSectionGap;
+  const slopeSectionY = hoverSegment ? segmentSectionY + hoverSectionHeight + hoverSectionGap : segmentSectionY;
   function indexFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
     if (!route) return null;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -750,19 +778,59 @@ function ElevationProfile({
           <line x1={hoverX} x2={hoverX} y1={padTop} y2={plotBottom} className="stroke-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
           <circle cx={hoverX} cy={hoverY} r="5" className="fill-primary stroke-background" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           <g>
-            <rect x={hoverLabelX} y={hoverLabelY} width={hoverLabelWidth} height={hoverLabelHeight} className="fill-background stroke-border" vectorEffect="non-scaling-stroke" />
-            <text x={hoverLabelX + 8} y={hoverLabelY + 11} className="fill-muted-foreground font-mono text-[10px]">
-              Distance: {formatDistance(hover.distance)}
+            <rect x={hoverLabelX} y={hoverLabelY} width={hoverLabelWidth} height={hoverLabelHeight} rx="3" className="fill-background stroke-border" vectorEffect="non-scaling-stroke" />
+            <rect x={hoverLabelX + 6} y={trackSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+            <text x={hoverLabelLeft} y={trackSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
+              Track point
             </text>
-            <text x={hoverLabelX + 8} y={hoverLabelY + 25} className="fill-foreground font-mono text-[11px] font-semibold">
-              Elevation: {formatElevation(hover.ele)}
+            <text x={hoverLabelLeft} y={trackSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
+              Distance
             </text>
-            <text x={hoverLabelX + 8} y={hoverLabelY + 39} className="fill-muted-foreground font-mono text-[10px]">
-              Slope dist: {formatDistance(hoverSlope?.distance ?? 0)}
+            <text x={hoverValueRight} y={trackSectionY + 27} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+              {formatDistance(hover.distance)}
             </text>
-            <rect x={hoverLabelX + 8} y={hoverLabelY + 44} width="8" height="8" fill={hoverSlopeColor} stroke="currentColor" className="text-border" vectorEffect="non-scaling-stroke" />
-            <text x={hoverLabelX + 8} y={hoverLabelY + 53} className="fill-foreground font-mono text-[11px] font-semibold">
-              <tspan dx="14">Avg slope: {formatSlope(hoverSlope?.slope ?? 0)}</tspan>
+            <text x={hoverLabelLeft} y={trackSectionY + 40} className="fill-muted-foreground font-mono text-[9px] uppercase">
+              Elevation
+            </text>
+            <text x={hoverValueRight} y={trackSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+              {formatElevation(hover.ele)}
+            </text>
+            {hoverSegment && (
+              <>
+                <rect x={hoverLabelX + 6} y={segmentSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+                <text x={hoverLabelLeft} y={segmentSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
+                  {hoverSegment.name}
+                </text>
+                <text x={hoverLabelLeft} y={segmentSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
+                  Distance
+                </text>
+                <text x={hoverValueRight} y={segmentSectionY + 27} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+                  {hoverSegmentDistance === null ? "—" : formatDistance(hoverSegmentDistance)}
+                </text>
+                <text x={hoverLabelLeft} y={segmentSectionY + 40} className="fill-muted-foreground font-mono text-[9px] uppercase">
+                  Climb
+                </text>
+                <text x={hoverValueRight} y={segmentSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+                  {hoverClimb === null ? "—" : formatElevation(hoverClimb)}
+                </text>
+              </>
+            )}
+            <rect x={hoverLabelX + 6} y={slopeSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+            <rect x={hoverLabelLeft} y={slopeSectionY + 6} width="8" height="8" fill={hoverSlopeColor} stroke="currentColor" className="text-border" vectorEffect="non-scaling-stroke" />
+            <text x={hoverLabelLeft + 14} y={slopeSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
+              Slope span
+            </text>
+            <text x={hoverLabelLeft} y={slopeSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
+              Distance
+            </text>
+            <text x={hoverValueRight} y={slopeSectionY + 27} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+              {formatDistance(hoverSlope?.distance ?? 0)}
+            </text>
+            <text x={hoverLabelLeft} y={slopeSectionY + 40} className="fill-muted-foreground font-mono text-[9px] uppercase">
+              Avg slope
+            </text>
+            <text x={hoverValueRight} y={slopeSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+              {formatSlope(hoverSlope?.slope ?? 0)}
             </text>
           </g>
         </>
