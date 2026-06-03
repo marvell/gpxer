@@ -3,6 +3,7 @@ WORKDIR /workspace
 
 COPY package.json bun.lock tsconfig.json bunfig.toml build.ts ./
 COPY src ./src
+COPY styles ./styles
 
 RUN bun install --frozen-lockfile
 
@@ -15,3 +16,5 @@ ENV NODE_ENV=production
 
 EXPOSE 3000
 USER bun
+
+CMD ["bun", "run", "start"]
