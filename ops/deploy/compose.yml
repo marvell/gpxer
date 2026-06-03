@@ -1,0 +1,15 @@
+name: gpxer
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: ops/build/Dockerfile
+    command: bun run start
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
