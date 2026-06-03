@@ -13,6 +13,7 @@ import {
   nearestPoint,
   parseGpx,
   safeFileName,
+  SLOPE_CLASSES,
   type RouteData,
   type Segment,
 } from "@/lib/gpx";
@@ -330,11 +331,11 @@ function RouteMap({
       map.addSource("active-segment", emptyLine());
       map.addSource("splits", emptyPoints());
       map.addSource("hover", emptyPoints());
-      map.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": "#111827", "line-width": 4 } });
-      map.addLayer({ id: "active-segment-line", type: "line", source: "active-segment", paint: { "line-color": "#2563eb", "line-width": 7, "line-opacity": 0.9 } });
+      map.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": "#0072bb", "line-width": 4 } });
+      map.addLayer({ id: "active-segment-line", type: "line", source: "active-segment", paint: { "line-color": "#1e91d6", "line-width": 7, "line-opacity": 0.9 } });
       map.addLayer({ id: "route-hit", type: "line", source: "route", paint: { "line-color": "#000", "line-opacity": 0.01, "line-width": 28 } });
-      map.addLayer({ id: "hover-point", type: "circle", source: "hover", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
-      map.addLayer({ id: "split-points", type: "circle", source: "splits", paint: { "circle-radius": 6, "circle-color": "#ef4444", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
+      map.addLayer({ id: "hover-point", type: "circle", source: "hover", paint: { "circle-radius": 7, "circle-color": "#1e91d6", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
+      map.addLayer({ id: "split-points", type: "circle", source: "splits", paint: { "circle-radius": 6, "circle-color": "#e18335", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
 
       const move = (event: maplibregl.MapMouseEvent) => {
         const activeRoute = routeRef.current;
@@ -504,9 +505,10 @@ function ElevationProfile({
   const hoverLabelHeight = 58;
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
   const hoverLabelY = hoverY < 70 ? hoverY + 14 : hoverY - 62;
-  const slopeLegendStops = [-20, -10, 0, 10, 20];
-  const slopeLegendWidth = 166;
+  const slopeLegendWidth = Math.min(320, Math.max(200, plotWidth - 24));
   const slopeLegendHeight = 8;
+  const slopeLegendSegment = slopeLegendWidth / SLOPE_CLASSES.length;
+  const slopeLegendBounds = [-8, -4, -1, 1, 4, 7, 10];
   const slopeLegendX = Math.max(padLeft + 8, plotRight - slopeLegendWidth - 12);
   const slopeLegendY = padTop + 10;
 
@@ -538,7 +540,7 @@ function ElevationProfile({
         <linearGradient id="elevation-fill" x1="0" x2="1" y1="0" y2="0">
           {slopeStops.length > 0 ? (
             slopeStops.map((stop, index) => (
-              <stop key={`${stop.offset}-${index}`} offset={`${stop.offset}%`} stopColor={stop.color} stopOpacity="0.72" />
+              <stop key={`${stop.offset}-${index}`} offset={`${stop.offset}%`} stopColor={stop.color} stopOpacity="0.9" />
             ))
           ) : (
             <>
@@ -546,11 +548,6 @@ function ElevationProfile({
               <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.02" />
             </>
           )}
-        </linearGradient>
-        <linearGradient id="slope-legend-fill" x1="0" x2="1" y1="0" y2="0">
-          {slopeLegendStops.map(slope => (
-            <stop key={slope} offset={`${((slope + 20) / 40) * 100}%`} stopColor={getSlopeColor(slope)} />
-          ))}
         </linearGradient>
       </defs>
       <rect x="0" y="0" width={width} height={height} rx="0" className="fill-muted/40" />
@@ -576,7 +573,7 @@ function ElevationProfile({
         />
       )}
       <path d={areaPath} fill="url(#elevation-fill)" />
-      <path d={path} className="fill-none stroke-foreground/80" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path d={path} className="fill-none stroke-foreground" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       {activeSegment && (
         <path
           d={activePath}
@@ -599,16 +596,29 @@ function ElevationProfile({
           <text x={slopeLegendX} y={slopeLegendY - 1} className="fill-muted-foreground font-mono text-[10px]">
             Slope
           </text>
-          <rect x={slopeLegendX} y={slopeLegendY + 4} width={slopeLegendWidth} height={slopeLegendHeight} fill="url(#slope-legend-fill)" className="stroke-border" vectorEffect="non-scaling-stroke" />
-          <text x={slopeLegendX} y={slopeLegendY + 25} textAnchor="start" className="fill-muted-foreground font-mono text-[9px]">
-            {formatSlope(-20)}
-          </text>
-          <text x={slopeLegendX + slopeLegendWidth / 2} y={slopeLegendY + 25} textAnchor="middle" className="fill-muted-foreground font-mono text-[9px]">
-            {formatSlope(0)}
-          </text>
-          <text x={slopeLegendX + slopeLegendWidth} y={slopeLegendY + 25} textAnchor="end" className="fill-muted-foreground font-mono text-[9px]">
-            {formatSlope(20)}
-          </text>
+          {SLOPE_CLASSES.map((slopeClass, index) => (
+            <rect
+              key={slopeClass.label}
+              x={slopeLegendX + index * slopeLegendSegment}
+              y={slopeLegendY + 4}
+              width={slopeLegendSegment}
+              height={slopeLegendHeight}
+              fill={slopeClass.color}
+              className="stroke-border"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {slopeLegendBounds.map((bound, index) => (
+            <text
+              key={bound}
+              x={slopeLegendX + (index + 1) * slopeLegendSegment}
+              y={slopeLegendY + 25}
+              textAnchor="middle"
+              className="fill-muted-foreground font-mono text-[9px]"
+            >
+              {bound > 0 ? `+${bound}` : bound}
+            </text>
+          ))}
         </g>
       )}
       {hover && (

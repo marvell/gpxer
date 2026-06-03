@@ -52,7 +52,14 @@ test("treats missing elevation as zero in the smoothing window", () => {
 });
 
 test("uses app-friendly slope colors", () => {
-  expect(getSlopeColor(0)).toBe("oklch(0.9 0.02 95)");
+  expect(getSlopeColor(-20)).toBe("#15803d");
+  expect(getSlopeColor(-8)).toBe("#22c55e");
+  expect(getSlopeColor(-2)).toBe("#86efac");
+  expect(getSlopeColor(0)).toBe("#d9f99d");
+  expect(getSlopeColor(2)).toBe("#fde047");
+  expect(getSlopeColor(5)).toBe("#fb923c");
+  expect(getSlopeColor(8)).toBe("#ef4444");
+  expect(getSlopeColor(20)).toBe("#991b1b");
   expect(getSlopeColor(30)).toBe(getSlopeColor(20));
   expect(getSlopeColor(-30)).toBe(getSlopeColor(-20));
   expect(getSlopeColor(10)).not.toBe(getSlopeColor(-10));

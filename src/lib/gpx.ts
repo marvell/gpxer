@@ -235,25 +235,22 @@ export function calculateElevationChange(points: Pick<RoutePoint, "ele" | "dista
   return { ascent, descent };
 }
 
-const MAX_SLOPE = 20;
+export const SLOPE_CLASSES = [
+  { maxSlope: -8, label: "< -8%", color: "#15803d" },
+  { maxSlope: -4, label: "-8..-4%", color: "#22c55e" },
+  { maxSlope: -1, label: "-4..-1%", color: "#86efac" },
+  { maxSlope: 1, label: "-1..+1%", color: "#d9f99d" },
+  { maxSlope: 4, label: "+1..+4%", color: "#fde047" },
+  { maxSlope: 7, label: "+4..+7%", color: "#fb923c" },
+  { maxSlope: 10, label: "+7..+10%", color: "#ef4444" },
+  { maxSlope: Infinity, label: "> +10%", color: "#991b1b" },
+] as const;
 
 export function getSlopeColor(slope: number) {
-  const clampedSlope = Math.max(-MAX_SLOPE, Math.min(MAX_SLOPE, slope));
-  const downhill = { lightness: 0.6, chroma: 0.118, hue: 184.704 };
-  const flat = { lightness: 0.9, chroma: 0.02, hue: 95 };
-  const uphill = { lightness: 0.646, chroma: 0.222, hue: 41.116 };
-  const from = clampedSlope < 0 ? flat : flat;
-  const to = clampedSlope < 0 ? downhill : uphill;
-  const ratio = Math.abs(clampedSlope) / MAX_SLOPE;
-  const lightness = from.lightness + (to.lightness - from.lightness) * ratio;
-  const chroma = from.chroma + (to.chroma - from.chroma) * ratio;
-  const hue = from.hue + (to.hue - from.hue) * ratio;
-
-  return `oklch(${roundColor(lightness)} ${roundColor(chroma)} ${roundColor(hue)})`;
-}
-
-function roundColor(value: number) {
-  return Math.round(value * 1000) / 1000;
+  for (const slopeClass of SLOPE_CLASSES) {
+    if (slope < slopeClass.maxSlope) return slopeClass.color;
+  }
+  return SLOPE_CLASSES.at(-1)!.color;
 }
 
 export function calculateProfileSlopes(points: Pick<RoutePoint, "ele" | "distance">[]) {
