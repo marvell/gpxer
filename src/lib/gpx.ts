@@ -25,12 +25,20 @@ export type Segment = {
   start: number;
   end: number;
   name: string;
+  startDistance: number;
+  endDistance: number;
   distance: number;
   ascent: number;
   descent: number;
   minEle: number | null;
   maxEle: number | null;
-  points: number;
+  slopeDistances: SlopeDistance[];
+};
+
+export type SlopeDistance = {
+  label: string;
+  color: string;
+  distance: number;
 };
 
 const GPX_NAMESPACE = "http://www.topografix.com/GPX/1/1";
@@ -123,12 +131,14 @@ export function buildSegments(points: RoutePoint[], splitIndexes: number[]): Seg
       start,
       end,
       name: `Segment ${id + 1}`,
+      startDistance: points[start]!.distance,
+      endDistance: points[end]!.distance,
       distance: points[end]!.distance - points[start]!.distance,
       ascent,
       descent,
       minEle,
       maxEle,
-      points: slice.length,
+      slopeDistances: calculateSlopeDistances(slice),
     };
   });
 }
@@ -247,10 +257,30 @@ export const SLOPE_CLASSES = [
 ] as const;
 
 export function getSlopeColor(slope: number) {
-  for (const slopeClass of SLOPE_CLASSES) {
-    if (slope < slopeClass.maxSlope) return slopeClass.color;
+  return slopeClassFor(slope).color;
+}
+
+export function calculateSlopeDistances(points: Pick<RoutePoint, "ele" | "distance">[]): SlopeDistance[] {
+  const distances = SLOPE_CLASSES.map(slopeClass => ({
+    label: slopeClass.label,
+    color: slopeClass.color,
+    distance: 0,
+  }));
+
+  for (const segment of calculateProfileSlopeSegments(points)) {
+    const slopeClass = slopeClassFor(segment.slope);
+    const index = SLOPE_CLASSES.indexOf(slopeClass);
+    distances[index]!.distance += segment.distance;
   }
-  return SLOPE_CLASSES.at(-1)!.color;
+
+  return distances;
+}
+
+function slopeClassFor(slope: number) {
+  for (const slopeClass of SLOPE_CLASSES) {
+    if (slope < slopeClass.maxSlope) return slopeClass;
+  }
+  return SLOPE_CLASSES.at(-1)!;
 }
 
 export function calculateProfileSlopes(points: Pick<RoutePoint, "ele" | "distance">[]) {

@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   buildSegments,
   calculateProfileSlopeSegments,
@@ -195,27 +196,29 @@ export function App() {
               </Button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
-              {segments.map(segment => (
-                <SegmentRow
-                  key={segment.id}
-                  segment={segment}
-                  checked={selectedSegments.has(segment.id)}
-                  active={segment.id === activeSegmentId}
-                  onSelect={() => setActiveSegmentId(segment.id)}
-                  onExport={() => downloadSegments([segment])}
-                  onCheckedChange={checked => {
-                    setSelectedSegments(current => {
-                      const next = new Set(current);
-                      if (checked) next.add(segment.id);
-                      else next.delete(segment.id);
-                      return next;
-                    });
-                  }}
-                  onHover={setHoverIndexIfChanged}
-                />
-              ))}
-            </div>
+            <TooltipProvider>
+              <div className="min-h-0 flex-1 overflow-auto">
+                {segments.map(segment => (
+                  <SegmentRow
+                    key={segment.id}
+                    segment={segment}
+                    checked={selectedSegments.has(segment.id)}
+                    active={segment.id === activeSegmentId}
+                    onSelect={() => setActiveSegmentId(segment.id)}
+                    onExport={() => downloadSegments([segment])}
+                    onCheckedChange={checked => {
+                      setSelectedSegments(current => {
+                        const next = new Set(current);
+                        if (checked) next.add(segment.id);
+                        else next.delete(segment.id);
+                        return next;
+                      });
+                    }}
+                    onHover={setHoverIndexIfChanged}
+                  />
+                ))}
+              </div>
+            </TooltipProvider>
           </aside>
         </div>
       )}
@@ -851,6 +854,10 @@ function formatSlope(slope: number) {
   return `${slope.toFixed(1)}%`;
 }
 
+function formatPercent(value: number) {
+  return `${Math.round(value)}%`;
+}
+
 function SegmentRow({
   segment,
   checked,
@@ -895,11 +902,45 @@ function SegmentRow({
           <Badge variant="outline" className="ml-auto font-mono tabular-nums">{formatDistance(segment.distance)}</Badge>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+          <span>start {formatDistance(segment.startDistance)}</span>
+          <span>end {formatDistance(segment.endDistance)}</span>
+          <span>dist {formatDistance(segment.distance)}</span>
           <span>↑ {formatElevation(segment.ascent)}</span>
           <span>↓ {formatElevation(segment.descent)}</span>
           <span>min {formatElevation(segment.minEle)}</span>
           <span>max {formatElevation(segment.maxEle)}</span>
-          <span className="col-span-2">pts {segment.start + 1}–{segment.end + 1} ({segment.points})</span>
+        </div>
+        <div
+          className="mt-2 overflow-hidden rounded-[2px] border bg-muted"
+          onMouseEnter={event => {
+            event.stopPropagation();
+            onHover(null);
+          }}
+          onMouseMove={event => event.stopPropagation()}
+        >
+          <div className="flex h-7 w-full">
+            {segment.slopeDistances.filter(item => item.distance > 0).map(item => {
+              const percent = segment.distance > 0 ? (item.distance / segment.distance) * 100 : 0;
+              const label = `${formatPercent(percent)} · ${formatDistance(item.distance)}`;
+              return (
+                <Tooltip key={item.label}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className="min-w-0"
+                      style={{ flexBasis: `${percent}%`, backgroundColor: item.color }}
+                      aria-label={`${item.label}: ${label}`}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="font-mono tabular-nums">
+                      <div>{item.label}</div>
+                      <div>{label}</div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
         </div>
       </div>
       <Button

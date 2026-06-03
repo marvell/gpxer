@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calculateElevationChange, calculateProfileSlopeDetails, calculateProfileSlopeSegments, calculateProfileSlopes, getSlopeColor, type RoutePoint } from "./gpx";
+import { calculateElevationChange, calculateProfileSlopeDetails, calculateProfileSlopeSegments, calculateProfileSlopes, calculateSlopeDistances, getSlopeColor, type RoutePoint } from "./gpx";
 
 function point(distance: number, ele: number | null, sourceSegment = 0): RoutePoint {
   return {
@@ -95,4 +95,16 @@ test("returns simplified profile slope segments", () => {
   ]);
 
   expect(segments).toEqual([{ start: 0, end: 2, slope: 20, distance: 200 }]);
+});
+
+test("sums profile slope distances by category", () => {
+  const distances = calculateSlopeDistances([
+    point(0, 100),
+    point(1000, 120),
+    point(2000, 300),
+    point(3000, 320),
+  ]);
+
+  expect(distances.find(item => item.label === "+1..+4%")?.distance).toBe(2000);
+  expect(distances.find(item => item.label === "> +10%")?.distance).toBe(1000);
 });
