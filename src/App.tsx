@@ -93,8 +93,8 @@ export function App() {
           <div className="grid size-8 place-items-center bg-primary text-primary-foreground">
             <Route className="size-4" />
           </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold tracking-tight">GPX Splitter</div>
+          <div className="min-w-0 leading-tight">
+            <div className="whitespace-nowrap text-sm font-semibold tracking-tight">GPX Splitter</div>
             <div className="max-w-[200px] truncate text-[11px] text-muted-foreground">{route?.name ?? "No file loaded"}</div>
           </div>
         </div>
@@ -112,7 +112,7 @@ export function App() {
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
             <Trash2 />
-            Clear splits
+            <span className="hidden sm:inline">Clear splits</span>
           </Button>
           <UploadButton onFile={onUpload} variant={route ? "outline" : "default"} />
         </div>
@@ -125,8 +125,8 @@ export function App() {
       {!route ? (
         <Dropzone onFile={onUpload} />
       ) : (
-        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-px bg-border xl:grid-cols-[minmax(0,1fr)_400px]">
-          <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_minmax(132px,22vh)] gap-px bg-border">
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-px bg-border lg:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="grid min-h-0 min-w-0 grid-rows-[minmax(260px,1fr)_minmax(168px,22vh)] gap-px bg-border">
             <div className="relative min-h-[260px] bg-background">
               <RouteMap
                 route={route}
@@ -147,7 +147,7 @@ export function App() {
                 <div className="text-xs font-semibold uppercase tracking-wide">Elevation profile</div>
                 <SlopeLegend />
               </div>
-              <div className="min-h-0 min-w-0 flex-1 p-3">
+              <div className="min-h-0 min-w-0 flex-1 px-2 pb-1.5 pt-3">
                 <ElevationProfile
                   route={route}
                   splits={splits}
@@ -197,8 +197,8 @@ export function App() {
 }
 
 const GPX_ACCEPT = ".gpx,application/gpx+xml,text/xml,application/xml";
-const HINT_CHIP_CLASS = "rounded-md border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur";
-const SEGMENT_MARKER_CLASS = "grid size-5 shrink-0 place-items-center rounded-[1px] border-2 border-background bg-destructive font-mono text-[10px] font-bold leading-none text-white shadow-sm";
+const HINT_CHIP_CLASS = "rounded-[2px] border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur";
+const SEGMENT_MARKER_CLASS = "grid size-5 shrink-0 place-items-center rounded-[1px] border-2 border-background bg-destructive font-mono text-[10px] font-bold leading-none text-white";
 type DistanceRange = { start: number; end: number };
 type ProfilePoint = Pick<RouteData["points"][number], "distance" | "ele">;
 type ProfileSlopeSegment = ReturnType<typeof calculateProfileSlopeSegments>[number];
@@ -286,7 +286,7 @@ function Dropzone({ onFile }: { onFile: (file: File | undefined) => void }) {
           setDrag(false);
           onFile(event.dataTransfer.files?.[0]);
         }}
-        className={`flex w-full max-w-xl cursor-pointer flex-col items-center gap-5 border-2 border-dashed p-12 text-center transition-colors ${drag ? "border-primary bg-muted" : "border-border bg-background hover:bg-muted/50"}`}
+        className={`flex w-full max-w-xl cursor-pointer flex-col items-center gap-5 border-2 border-dashed p-6 text-center transition-colors sm:p-12 ${drag ? "border-primary bg-muted" : "border-border bg-background hover:bg-muted/50"}`}
       >
         <div className="grid size-14 place-items-center border bg-muted">
           <Upload className="size-6 text-muted-foreground" />
@@ -492,7 +492,7 @@ function RouteMap({
   }, [route, hoverPointData]);
 
   return (
-    <div className="relative h-full min-h-[420px]">
+    <div className="relative h-full min-h-0">
       <div ref={containerRef} className="h-full w-full" />
       {!route && <div className="absolute inset-0 grid place-items-center bg-background/80 text-muted-foreground">Upload GPX to show map.</div>}
     </div>
@@ -533,10 +533,10 @@ function ElevationProfile({
   }, []);
 
   const { width, height } = size;
-  const padLeft = 54;
-  const padRight = 18;
-  const padTop = 12;
-  const padBottom = 26;
+  const padLeft = 46;
+  const padRight = 10;
+  const padTop = 8;
+  const padBottom = 22;
   const points = route?.points ?? [];
   const total = route?.totalDistance || 1;
   const profileRange = useMemo(() => normalizeProfileRange(focusRange, total), [focusRange, total]);
@@ -628,8 +628,7 @@ function ElevationProfile({
           )}
         </linearGradient>
       </defs>
-      <rect x="0" y="0" width={width} height={height} rx="0" className="fill-muted/40" />
-      <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} className="fill-background/70" />
+      <rect x="0" y="0" width={width} height={height} rx="0" className="fill-background" />
       {yTicks.map(tick => (
         <g key={tick.toFixed(2)}>
           <line x1={padLeft} x2={plotRight} y1={y(tick)} y2={y(tick)} className="stroke-border" strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -848,7 +847,7 @@ function SegmentRow({
 
   return (
     <div
-      className={`relative w-full rounded-md border bg-background ${active ? "border-primary bg-muted/60" : "border-border"}`}
+      className={`relative w-full rounded-[2px] border bg-background ${active ? "border-primary bg-muted/60" : "border-border"}`}
     >
       <button type="button" className="w-full cursor-pointer p-2.5 text-left" onClick={onSelect}>
         <div className="flex items-start gap-2.5">
@@ -937,7 +936,7 @@ function SegmentMetric({
   strong?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-md border bg-background px-2 py-1.5">
+    <div className="relative overflow-hidden rounded-[2px] border bg-background px-2 py-1.5">
       {progress !== undefined && (
         <div className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${Math.max(0, Math.min(progress, 1)) * 100}%` }} />
       )}
@@ -949,7 +948,7 @@ function SegmentMetric({
 
 function UphillSummary({ percent, distance }: { percent: number; distance: number }) {
   return (
-    <div className="mt-1.5 grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-md border bg-background px-2 py-1.5">
+    <div className="mt-1.5 grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-[2px] border bg-background px-2 py-1.5">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Uphill &gt;1%</div>
       <div className="h-1.5 overflow-hidden rounded-[1px] bg-muted">
         <div className="h-full bg-chart-4/70" style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }} />
