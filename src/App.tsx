@@ -10,6 +10,8 @@ import {
   formatDistance,
   formatElevation,
   getSlopeColor,
+  getSlopeLabel,
+  getSlopeName,
   nearestPoint,
   parseGpx,
   safeFileName,
@@ -670,6 +672,8 @@ function ElevationProfile({
   }, [hover, hoverSegment, points]);
   const hoverSlope = hover ? slopeDetailAtDistance(visiblePoints, profileSlopeSegments, hover.distance) : null;
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
+  const hoverSlopeLabel = getSlopeLabel(hoverSlope?.slope ?? 0);
+  const hoverSlopeName = getSlopeName(hoverSlope?.slope ?? 0);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
   const hoverLabelWidth = 220;
@@ -818,7 +822,10 @@ function ElevationProfile({
             <rect x={hoverLabelX + 6} y={slopeSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
             <rect x={hoverLabelLeft} y={slopeSectionY + 6} width="8" height="8" fill={hoverSlopeColor} stroke="currentColor" className="text-border" vectorEffect="non-scaling-stroke" />
             <text x={hoverLabelLeft + 14} y={slopeSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
-              Slope span
+              {hoverSlopeName}
+            </text>
+            <text x={hoverValueRight} y={slopeSectionY + 12} textAnchor="end" className="fill-foreground font-mono text-[10px] font-bold">
+              {hoverSlopeLabel}
             </text>
             <text x={hoverLabelLeft} y={slopeSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
               Distance
@@ -1021,22 +1028,38 @@ function SegmentRow({
               <div className="flex h-6 w-full">
                 {segment.slopeDistances.filter(item => item.distance > 0).map(item => {
                   const percent = segment.distance > 0 ? (item.distance / segment.distance) * 100 : 0;
-                  const label = `${formatPercent(percent)} · ${formatDistance(item.distance)}`;
+                  const percentLabel = formatPercent(percent);
+                  const distanceLabel = formatDistance(item.distance);
                   return (
                     <Tooltip key={item.label}>
                       <TooltipTrigger asChild>
                         <div
                           className="grid min-w-0 place-items-center overflow-hidden font-mono text-[10px] font-bold leading-none text-black/70 tabular-nums"
                           style={{ flexBasis: `${percent}%`, backgroundColor: item.color }}
-                          aria-label={`${item.label}: ${label}`}
+                          aria-label={`${item.name} ${item.label}: ${percentLabel}, ${distanceLabel}`}
                         >
-                          {percent >= 10 ? formatPercent(percent) : null}
+                          {percent >= 10 ? percentLabel : null}
                         </div>
                       </TooltipTrigger>
-                      <TooltipContent>
-                        <div className="font-mono tabular-nums">
-                          <div>{item.label}</div>
-                          <div>{label}</div>
+                      <TooltipContent hideArrow className="border bg-background p-1 text-foreground shadow-md">
+                        <div className="w-40 rounded-[2px] border bg-muted/35 px-2 py-1.5 font-mono tabular-nums">
+                          <div className="mb-1.5 flex items-start justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className="size-2.5 shrink-0 rounded-[1px] border border-border" style={{ backgroundColor: item.color }} />
+                              <span className="min-w-0 text-[9px] font-bold uppercase leading-tight text-muted-foreground">{item.name}</span>
+                            </div>
+                            <span className="shrink-0 text-[10px] font-bold leading-none">{item.label}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 border-t pt-1.5">
+                            <div>
+                              <div className="text-[9px] uppercase text-muted-foreground">Distance</div>
+                              <div className="text-[12px] font-bold leading-tight">{distanceLabel}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] uppercase text-muted-foreground">Share</div>
+                              <div className="text-[12px] font-bold leading-tight">{percentLabel}</div>
+                            </div>
+                          </div>
                         </div>
                       </TooltipContent>
                     </Tooltip>

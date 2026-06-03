@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calculateElevationChange, calculateProfileSlopeDetails, calculateProfileSlopeSegments, calculateProfileSlopes, calculateSlopeDistances, getSlopeColor, type RoutePoint } from "./gpx";
+import { calculateElevationChange, calculateProfileSlopeDetails, calculateProfileSlopeSegments, calculateProfileSlopes, calculateSlopeDistances, getSlopeColor, getSlopeName, type RoutePoint } from "./gpx";
 
 function point(distance: number, ele: number | null, sourceSegment = 0): RoutePoint {
   return {
@@ -63,6 +63,17 @@ test("uses app-friendly slope colors", () => {
   expect(getSlopeColor(30)).toBe(getSlopeColor(20));
   expect(getSlopeColor(-30)).toBe(getSlopeColor(-20));
   expect(getSlopeColor(10)).not.toBe(getSlopeColor(-10));
+});
+
+test("names slope categories", () => {
+  expect(getSlopeName(-20)).toBe("steep downhill");
+  expect(getSlopeName(-8)).toBe("downhill");
+  expect(getSlopeName(-2)).toBe("gentle downhill");
+  expect(getSlopeName(0)).toBe("flat");
+  expect(getSlopeName(2)).toBe("false flat");
+  expect(getSlopeName(5)).toBe("climb");
+  expect(getSlopeName(8)).toBe("hard climb");
+  expect(getSlopeName(20)).toBe("steep climb");
 });
 
 test("calculates profile slopes from simplified elevation spans", () => {

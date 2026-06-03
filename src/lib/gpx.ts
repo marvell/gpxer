@@ -36,6 +36,7 @@ export type Segment = {
 };
 
 export type SlopeDistance = {
+  name: string;
   label: string;
   color: string;
   distance: number;
@@ -246,22 +247,31 @@ export function calculateElevationChange(points: Pick<RoutePoint, "ele" | "dista
 }
 
 export const SLOPE_CLASSES = [
-  { maxSlope: -8, label: "< -8%", color: "#15803d" },
-  { maxSlope: -4, label: "-8..-4%", color: "#22c55e" },
-  { maxSlope: -1, label: "-4..-1%", color: "#86efac" },
-  { maxSlope: 1, label: "-1..+1%", color: "#d9f99d" },
-  { maxSlope: 4, label: "+1..+4%", color: "#fde047" },
-  { maxSlope: 7, label: "+4..+7%", color: "#fb923c" },
-  { maxSlope: 10, label: "+7..+10%", color: "#ef4444" },
-  { maxSlope: Infinity, label: "> +10%", color: "#991b1b" },
+  { maxSlope: -8, name: "steep downhill", label: "< -8%", color: "#15803d" },
+  { maxSlope: -4, name: "downhill", label: "-8..-4%", color: "#22c55e" },
+  { maxSlope: -1, name: "gentle downhill", label: "-4..-1%", color: "#86efac" },
+  { maxSlope: 1, name: "flat", label: "-1..+1%", color: "#d9f99d" },
+  { maxSlope: 4, name: "false flat", label: "+1..+4%", color: "#fde047" },
+  { maxSlope: 7, name: "climb", label: "+4..+7%", color: "#fb923c" },
+  { maxSlope: 10, name: "hard climb", label: "+7..+10%", color: "#ef4444" },
+  { maxSlope: Infinity, name: "steep climb", label: "> +10%", color: "#991b1b" },
 ] as const;
 
 export function getSlopeColor(slope: number) {
   return slopeClassFor(slope).color;
 }
 
+export function getSlopeLabel(slope: number) {
+  return slopeClassFor(slope).label;
+}
+
+export function getSlopeName(slope: number) {
+  return slopeClassFor(slope).name;
+}
+
 export function calculateSlopeDistances(points: Pick<RoutePoint, "ele" | "distance">[]): SlopeDistance[] {
   const distances = SLOPE_CLASSES.map(slopeClass => ({
+    name: slopeClass.name,
     label: slopeClass.label,
     color: slopeClass.color,
     distance: 0,
