@@ -1,7 +1,7 @@
 {
   "name": "gpxer",
   "version": "0.1.0",
-  "description": "A browser app for splitting GPX tracks into route segments.",
+  "description": "Free online GPX route splitter for cyclists, hikers, runners, and outdoor route planners.",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -10,11 +10,18 @@
   },
   "keywords": [
     "gpx",
+    "gpx-splitter",
+    "gpx-editor",
+    "gpx-viewer",
     "route",
+    "route-planner",
     "cycling",
     "hiking",
+    "running",
+    "outdoor",
     "maplibre",
-    "tracks"
+    "tracks",
+    "elevation-profile"
   ],
   "type": "module",
   "scripts": {

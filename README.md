@@ -1,9 +1,11 @@
-# GPXer
+# GPXer — Online GPX Route Splitter
 
-GPXer is a browser app for splitting GPX tracks into route segments.
+[GPXer](https://gpxer.zemliakov.com/) is a free online GPX route splitter for
+cyclists, hikers, runners, and outdoor route planners.
 
 Upload a GPX file, inspect the route on a map, review the elevation profile,
 place split points along the track, and export individual GPX segment files.
+GPX files are processed locally in the browser, so routes stay on your device.
 
 ## Features
 
