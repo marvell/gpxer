@@ -29,7 +29,7 @@ import {
 import { Download, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 
 export function App() {
@@ -154,40 +154,49 @@ export function App() {
   }
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-muted/40 text-sm">
-      <header className="flex h-14 shrink-0 items-center gap-4 border-b bg-background px-4">
-        <div className="flex items-center gap-2.5">
-          <div className="grid size-8 place-items-center bg-primary text-primary-foreground">
-            <Route className="size-4" />
+    <TooltipProvider delayDuration={700} skipDelayDuration={0}>
+      <main className="flex h-screen flex-col overflow-hidden bg-muted/40 text-sm">
+        <header className="flex h-14 shrink-0 items-center gap-4 border-b bg-background px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="grid size-8 place-items-center bg-primary text-primary-foreground">
+              <Route className="size-4" />
+            </div>
+            <div className="min-w-0 leading-tight">
+              <div className="whitespace-nowrap text-sm font-semibold tracking-tight">GPXer</div>
+              <div className="max-w-[200px] truncate text-[11px] text-muted-foreground">{route?.name ?? "No file loaded"}</div>
+            </div>
           </div>
-          <div className="min-w-0 leading-tight">
-            <div className="whitespace-nowrap text-sm font-semibold tracking-tight">GPXer</div>
-            <div className="max-w-[200px] truncate text-[11px] text-muted-foreground">{route?.name ?? "No file loaded"}</div>
-          </div>
-        </div>
 
-        {route && (
-          <div className="ml-2 hidden items-stretch border lg:flex">
-            <StatPill label="Dist" value={formatDistance(route.totalDistance)} />
-            <StatPill label="Asc" value={formatElevation(route.ascent)} />
-            <StatPill label="Desc" value={formatElevation(route.descent)} />
-            <StatPill label="Seg" value={String(segments.length)} />
-            <StatPill label="Cuts" value={String(splits.length)} last />
-          </div>
-        )}
+          {route && (
+            <div className="ml-2 hidden items-stretch border lg:flex">
+              <StatPill label="Dist" value={formatDistance(route.totalDistance)} help="Total route distance from the GPX track points." />
+              <StatPill label="Asc" value={formatElevation(route.ascent)} help="Total ascent calculated from GPX elevation data." />
+              <StatPill label="Desc" value={formatElevation(route.descent)} help="Total descent calculated from GPX elevation data." />
+              <StatPill label="Seg" value={String(segments.length)} help="Number of exportable route parts. Cuts + 1." />
+              <StatPill label="Cuts" value={String(splits.length)} help="Split points you added on the map or elevation profile." last />
+            </div>
+          )}
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
-            <Trash2 />
-            <span className="hidden sm:inline">Clear splits</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={forgetRoute} disabled={!route}>
-            <X />
-            <span className="hidden sm:inline">Forget route</span>
-          </Button>
-          <UploadButton onFile={onUpload} variant={route ? "outline" : "default"} />
-        </div>
-      </header>
+          <div className="ml-auto flex items-center gap-2">
+            <HelpTooltip content="Remove all split points. The loaded GPX route stays open.">
+              <span className="inline-flex">
+                <Button variant="outline" size="sm" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
+                  <Trash2 />
+                  <span className="hidden sm:inline">Clear splits</span>
+                </Button>
+              </span>
+            </HelpTooltip>
+            <HelpTooltip content="Close this route and remove its saved local copy from this browser.">
+              <span className="inline-flex">
+                <Button variant="outline" size="sm" onClick={forgetRoute} disabled={!route}>
+                  <X />
+                  <span className="hidden sm:inline">Forget route</span>
+                </Button>
+              </span>
+            </HelpTooltip>
+            <UploadButton onFile={onUpload} variant={route ? "outline" : "default"} />
+          </div>
+        </header>
 
       {error && (
         <div className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 font-medium text-destructive">{error}</div>
@@ -209,13 +218,16 @@ export function App() {
                 onVisibleRange={setMapDistanceRangeIfChanged}
               />
               <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-1.5 text-[11px]">
-                <span className={HINT_CHIP_CLASS}>Click track to split</span>
-                <span className={HINT_CHIP_CLASS}>Click marker to merge</span>
+                <span className={HINT_CHIP_CLASS}>Click map or profile to split</span>
+                <span className={HINT_CHIP_CLASS}>Click split marker to remove</span>
               </div>
             </div>
             <div className="flex min-h-[160px] min-w-0 flex-col bg-background">
               <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-                <div className="text-xs font-semibold uppercase tracking-wide">Elevation profile</div>
+                <SectionTitle
+                  title="Elevation profile"
+                  help="The chart shows route elevation over distance. Colors show slope ranges; click the chart to add or remove a split."
+                />
                 <SlopeLegend />
               </div>
               <div className="min-h-0 min-w-0 flex-1 px-2 pb-1.5 pt-3">
@@ -235,36 +247,42 @@ export function App() {
 
           <aside className="flex min-h-0 flex-col bg-background">
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-              <div className="text-xs font-semibold uppercase tracking-wide">Segments</div>
+              <div>
+                <SectionTitle title="Segments" help="Segments are the route parts between split points. Click a segment to highlight it on the map and profile." />
+                <div className="mt-0.5 text-[11px] text-muted-foreground">Created between your split points.</div>
+              </div>
               <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
             </div>
 
             <div className="flex flex-col gap-2 border-b px-4 py-3">
-              <Button size="sm" variant="outline" className="w-full" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
-                <Download />
-                Export all
-              </Button>
+              <HelpTooltip content={splits.length === 0 ? "Download the unchanged route as one GPX file." : "Download one GPX file for each segment."}>
+                <span className="inline-flex w-full">
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => downloadSegments(segments)} disabled={!segments.length}>
+                    <Download />
+                    Export all
+                  </Button>
+                </span>
+              </HelpTooltip>
             </div>
 
-            <TooltipProvider>
-              <div className="min-h-0 flex-1 space-y-1.5 overflow-auto p-2">
-                {segments.map(segment => (
-                  <SegmentRow
-                    key={segment.id}
-                    segment={segment}
-                    distanceBalance={maxSegmentDistance > 0 ? segment.distance / maxSegmentDistance : 0}
-                    climbBalance={maxSegmentAscent > 0 ? segment.ascent / maxSegmentAscent : 0}
-                    active={segment.id === activeSegmentId}
-                    onSelect={() => setActiveSegmentId(segment.id)}
-                    onExport={() => downloadSegments([segment])}
-                  />
-                ))}
-              </div>
-            </TooltipProvider>
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-auto p-2">
+              {segments.map(segment => (
+                <SegmentRow
+                  key={segment.id}
+                  segment={segment}
+                  distanceBalance={maxSegmentDistance > 0 ? segment.distance / maxSegmentDistance : 0}
+                  climbBalance={maxSegmentAscent > 0 ? segment.ascent / maxSegmentAscent : 0}
+                  active={segment.id === activeSegmentId}
+                  onSelect={() => setActiveSegmentId(segment.id)}
+                  onExport={() => downloadSegments([segment])}
+                />
+              ))}
+            </div>
           </aside>
         </div>
       )}
-    </main>
+      </main>
+    </TooltipProvider>
   );
 }
 
@@ -297,21 +315,47 @@ function mapSplitMarkerImage(fill: string, stroke: string) {
 
 function UploadButton({ onFile, variant }: { onFile: (file: File | undefined) => void; variant: "default" | "outline" }) {
   return (
-    <Button asChild size="sm" variant={variant}>
-      <label className="cursor-pointer">
-        <Upload />
-        Upload GPX
-        <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
-      </label>
-    </Button>
+    <HelpTooltip content="Open a GPX track file from your device. Processing happens in this browser.">
+      <Button asChild size="sm" variant={variant}>
+        <label className="cursor-pointer">
+          <Upload />
+          Upload GPX
+          <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
+        </label>
+      </Button>
+    </HelpTooltip>
   );
 }
 
-function StatPill({ label, value, last }: { label: string; value: string; last?: boolean }) {
+function StatPill({ label, value, help, last }: { label: string; value: string; help: string; last?: boolean }) {
   return (
-    <div className={`flex flex-col justify-center px-3 py-1 ${last ? "" : "border-r"}`}>
-      <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="font-mono text-xs font-semibold tabular-nums leading-tight">{value}</span>
+    <HelpTooltip content={help}>
+      <div className={`flex flex-col justify-center px-3 py-1 ${last ? "" : "border-r"}`}>
+        <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="font-mono text-xs font-semibold tabular-nums leading-tight">{value}</span>
+      </div>
+    </HelpTooltip>
+  );
+}
+
+function HelpTooltip({ content, children }: { content: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent className="max-w-64 text-xs leading-snug">{content}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function SectionTitle({ title, help }: { title: string; help: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="text-xs font-semibold uppercase tracking-wide">{title}</div>
+      <HelpTooltip content={help}>
+        <button type="button" className="grid size-4 place-items-center rounded-full border text-[10px] font-bold leading-none text-muted-foreground hover:bg-muted">
+          ?
+        </button>
+      </HelpTooltip>
     </div>
   );
 }
@@ -320,7 +364,9 @@ function SlopeLegend() {
   const bounds = SLOPE_CLASSES.slice(0, -1).map(slopeClass => slopeClass.maxSlope);
   return (
     <div className="ml-auto hidden min-w-0 items-center justify-end gap-2 sm:flex">
-      <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Slope</span>
+      <HelpTooltip content="Slope colors group each part of the route from downhill green to steep climb dark red. Values are based on GPX elevation data.">
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Slope</span>
+      </HelpTooltip>
       <div className="flex w-[260px] max-w-[40vw] flex-col gap-0.5">
         <div className="grid h-2 overflow-hidden rounded-[1px] border" style={{ gridTemplateColumns: `repeat(${SLOPE_CLASSES.length}, minmax(0, 1fr))` }}>
           {SLOPE_CLASSES.map(slopeClass => (
@@ -365,12 +411,17 @@ function Dropzone({ onFile }: { onFile: (file: File | undefined) => void }) {
         </div>
         <div>
           <div className="text-base font-semibold">Drop a GPX file here</div>
-          <div className="mt-1 text-sm text-muted-foreground">or click to browse — split a route into multi-day segments</div>
+          <div className="mt-1 text-sm text-muted-foreground">or click to browse — split a route into smaller GPX files</div>
+        </div>
+        <div className="grid max-w-md gap-2 text-left text-xs text-muted-foreground sm:grid-cols-3">
+          <div><span className="font-semibold text-foreground">1. Upload</span><br />Choose a GPX track from your device.</div>
+          <div><span className="font-semibold text-foreground">2. Split</span><br />Click the map or elevation profile to add cut points.</div>
+          <div><span className="font-semibold text-foreground">3. Export</span><br />Download one GPX per segment, or the unchanged route.</div>
         </div>
         <div className="flex flex-wrap justify-center gap-2 text-[11px] text-muted-foreground">
-          <span className={HINT_CHIP_CLASS}>Click track to split</span>
-          <span className={HINT_CHIP_CLASS}>Click marker to merge</span>
-          <span className={HINT_CHIP_CLASS}>Export unchanged GPX</span>
+          <span className={HINT_CHIP_CLASS}>Files stay in your browser</span>
+          <span className={HINT_CHIP_CLASS}>Last route is restored locally</span>
+          <span className={HINT_CHIP_CLASS}>Use Forget route to clear it</span>
         </div>
         <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
       </label>
@@ -1008,30 +1059,37 @@ function SegmentRow({
             </div>
 
             <div className="mt-2 grid grid-cols-3 gap-1.5">
-              <SegmentMetric label="Distance" value={formatDistance(segment.distance)} progress={distanceBalance} strong />
+              <SegmentMetric
+                label="Distance"
+                value={formatDistance(segment.distance)}
+                progress={distanceBalance}
+                help="Length of this segment. The blue fill compares it with the longest segment."
+                strong
+              />
               <SegmentMetric
                 label="Climb"
                 value={`↑ ${formatElevation(segment.ascent)}`}
                 progress={climbBalance}
+                help="Total ascent inside this segment, calculated from GPX elevation data. The blue fill compares it with the biggest climb."
               />
-              <SegmentMetric label="Drop" value={`↓ ${formatElevation(segment.descent)}`} />
+              <SegmentMetric label="Drop" value={`↓ ${formatElevation(segment.descent)}`} help="Total descent inside this segment, calculated from GPX elevation data." />
             </div>
 
             <UphillSummary percent={uphillPercent} distance={uphillDistance} />
 
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-              <SegmentMetric label="Lowest" value={formatElevation(segment.minEle)} />
-              <SegmentMetric label="Highest" value={formatElevation(segment.maxEle)} />
+              <SegmentMetric label="Lowest" value={formatElevation(segment.minEle)} help="Lowest elevation point found in this segment. Shows — if the GPX has no elevation data." />
+              <SegmentMetric label="Highest" value={formatElevation(segment.maxEle)} help="Highest elevation point found in this segment. Shows — if the GPX has no elevation data." />
             </div>
 
-            <div className="mt-2 overflow-hidden rounded-[2px] border bg-muted">
+            <div className="mt-2 overflow-hidden rounded-[2px] border bg-muted" aria-label="Slope distribution. Hover each color for distance and share.">
               <div className="flex h-6 w-full">
                 {segment.slopeDistances.filter(item => item.distance > 0).map(item => {
                   const percent = segment.distance > 0 ? (item.distance / segment.distance) * 100 : 0;
                   const percentLabel = formatPercent(percent);
                   const distanceLabel = formatDistance(item.distance);
                   return (
-                    <Tooltip key={item.label}>
+                    <Tooltip key={item.label} delayDuration={0}>
                       <TooltipTrigger asChild>
                         <div
                           className="grid min-w-0 place-items-center overflow-hidden font-mono text-[10px] font-bold leading-none text-black/70 tabular-nums"
@@ -1070,15 +1128,16 @@ function SegmentRow({
           </div>
         </div>
       </button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        title="Export this segment"
-        className="absolute right-2.5 top-2.5 opacity-70"
-        onClick={onExport}
-      >
-        <Download />
-      </Button>
+      <HelpTooltip content="Download only this segment as a GPX file.">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="absolute right-2.5 top-2.5 opacity-70"
+          onClick={onExport}
+        >
+          <Download />
+        </Button>
+      </HelpTooltip>
     </div>
   );
 }
@@ -1086,36 +1145,42 @@ function SegmentRow({
 function SegmentMetric({
   label,
   value,
+  help,
   progress,
   strong = false,
 }: {
   label: string;
   value: string;
+  help: string;
   progress?: number;
   strong?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[2px] border bg-background px-2 py-1.5">
-      {progress !== undefined && (
-        <div className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${Math.max(0, Math.min(progress, 1)) * 100}%` }} />
-      )}
-      <div className="relative text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`relative mt-0.5 font-mono text-xs tabular-nums ${strong ? "font-bold text-foreground" : "text-foreground/85"}`}>{value}</div>
-    </div>
+    <HelpTooltip content={help}>
+      <div className="relative overflow-hidden rounded-[2px] border bg-background px-2 py-1.5">
+        {progress !== undefined && (
+          <div className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${Math.max(0, Math.min(progress, 1)) * 100}%` }} />
+        )}
+        <div className="relative text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className={`relative mt-0.5 font-mono text-xs tabular-nums ${strong ? "font-bold text-foreground" : "text-foreground/85"}`}>{value}</div>
+      </div>
+    </HelpTooltip>
   );
 }
 
 function UphillSummary({ percent, distance }: { percent: number; distance: number }) {
   return (
-    <div className="mt-1.5 grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-[2px] border bg-background px-2 py-1.5">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Uphill &gt;1%</div>
-      <div className="h-1.5 overflow-hidden rounded-[1px] bg-muted">
-        <div className="h-full bg-chart-4/70" style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }} />
+    <HelpTooltip content="Share and distance of this segment where the calculated slope is steeper than +1%.">
+      <div className="mt-1.5 grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-[2px] border bg-background px-2 py-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Uphill &gt;1%</div>
+        <div className="h-1.5 overflow-hidden rounded-[1px] bg-muted">
+          <div className="h-full bg-chart-4/70" style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }} />
+        </div>
+        <div className="font-mono text-[11px] font-semibold tabular-nums">
+          {formatPercent(percent)} · {formatDistance(distance)}
+        </div>
       </div>
-      <div className="font-mono text-[11px] font-semibold tabular-nums">
-        {formatPercent(percent)} · {formatDistance(distance)}
-      </div>
-    </div>
+    </HelpTooltip>
   );
 }
 
