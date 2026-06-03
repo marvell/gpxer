@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   buildSegments,
-  calculateProfileSlopeDetails,
   calculateProfileSlopeSegments,
   downloadText,
   exportSegmentGpx,
@@ -30,14 +29,23 @@ export function App() {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [selectedSegments, setSelectedSegments] = useState<Set<number>>(new Set());
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
+  const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
   const previousSegmentIdsRef = useRef<number[]>([]);
   const hoverIndexRef = useRef<number | null>(null);
+  const mapDistanceRangeRef = useRef<DistanceRange | null>(null);
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
   const activeSegment = segments.find(segment => segment.id === activeSegmentId) ?? null;
   const setHoverIndexIfChanged = useCallback((index: number | null) => {
     if (hoverIndexRef.current === index) return;
     hoverIndexRef.current = index;
     setHoverIndex(index);
+  }, []);
+  const setMapDistanceRangeIfChanged = useCallback((range: DistanceRange | null) => {
+    const current = mapDistanceRangeRef.current;
+    const changed = current?.start !== range?.start || current?.end !== range?.end;
+    if (!changed) return;
+    mapDistanceRangeRef.current = range;
+    setMapDistanceRange(range);
   }, []);
 
   useEffect(() => {
@@ -59,6 +67,7 @@ export function App() {
       setRoute(parsed);
       setSplits([]);
       setHoverIndexIfChanged(null);
+      setMapDistanceRangeIfChanged(null);
       setActiveSegmentId(1);
       setError(null);
     } catch (reason) {
@@ -128,8 +137,8 @@ export function App() {
       {!route ? (
         <Dropzone onFile={onUpload} />
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-px bg-border xl:grid-cols-[1fr_400px]">
-          <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(132px,22vh)] gap-px bg-border">
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-px bg-border xl:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_minmax(132px,22vh)] gap-px bg-border">
             <div className="relative min-h-[260px] bg-background">
               <RouteMap
                 route={route}
@@ -138,23 +147,25 @@ export function App() {
                 activeSegment={activeSegment}
                 onHover={setHoverIndexIfChanged}
                 onToggleSplit={toggleSplit}
+                onVisibleRange={setMapDistanceRangeIfChanged}
               />
               <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-1.5 text-[11px]">
                 <span className="bg-background/90 px-2 py-1 font-medium shadow-sm backdrop-blur">Click track to split</span>
                 <span className="bg-background/90 px-2 py-1 font-medium shadow-sm backdrop-blur">Click marker to merge</span>
               </div>
             </div>
-            <div className="flex min-h-[160px] flex-col bg-background">
+            <div className="flex min-h-[160px] min-w-0 flex-col bg-background">
               <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
                 <div className="text-xs font-semibold uppercase tracking-wide">Elevation profile</div>
                 <Badge variant="outline" className="rounded-none font-mono tabular-nums">{route.points.length.toLocaleString()} pts</Badge>
               </div>
-              <div className="min-h-0 flex-1 p-3">
+              <div className="min-h-0 min-w-0 flex-1 p-3">
                 <ElevationProfile
                   route={route}
                   splits={splits}
                   hoverIndex={hoverIndex}
                   activeSegment={activeSegment}
+                  focusRange={mapDistanceRange}
                   onHover={setHoverIndexIfChanged}
                   onToggleSplit={toggleSplit}
                 />
@@ -213,6 +224,9 @@ export function App() {
 }
 
 const GPX_ACCEPT = ".gpx,application/gpx+xml,text/xml,application/xml";
+type DistanceRange = { start: number; end: number };
+type ProfilePoint = Pick<RouteData["points"][number], "distance" | "ele">;
+type ProfileSlopeSegment = ReturnType<typeof calculateProfileSlopeSegments>[number];
 
 function UploadButton({ onFile, variant }: { onFile: (file: File | undefined) => void; variant: "default" | "outline" }) {
   return (
@@ -277,6 +291,7 @@ function RouteMap({
   activeSegment,
   onHover,
   onToggleSplit,
+  onVisibleRange,
 }: {
   route: RouteData | null;
   splits: number[];
@@ -284,6 +299,7 @@ function RouteMap({
   activeSegment: Segment | null;
   onHover: (index: number | null) => void;
   onToggleSplit: (index: number) => void;
+  onVisibleRange: (range: DistanceRange | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -291,6 +307,7 @@ function RouteMap({
   const routeRef = useRef<RouteData | null>(null);
   const onHoverRef = useRef(onHover);
   const onToggleSplitRef = useRef(onToggleSplit);
+  const onVisibleRangeRef = useRef(onVisibleRange);
   const routeLineData = useMemo(() => (route ? lineData(route) : null), [route]);
   const activeSegmentLineData = useMemo(
     () => (route && activeSegment ? segmentLineData(route, activeSegment) : emptyLine().data),
@@ -305,6 +322,7 @@ function RouteMap({
   routeRef.current = route;
   onHoverRef.current = onHover;
   onToggleSplitRef.current = onToggleSplit;
+  onVisibleRangeRef.current = onVisibleRange;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -363,9 +381,14 @@ function RouteMap({
       const resetPointer = () => {
         map.getCanvas().style.cursor = "";
       };
+      const reportVisibleRange = () => {
+        const activeRoute = routeRef.current;
+        onVisibleRangeRef.current(activeRoute ? visibleDistanceRange(map, activeRoute) : null);
+      };
 
       map.on("mousemove", "route-hit", move);
       map.on("click", click);
+      map.on("moveend", reportVisibleRange);
       map.on("mouseenter", "route-hit", pointer);
       map.on("mouseenter", "split-points", pointer);
       map.on("mouseenter", "hover-point", pointer);
@@ -387,9 +410,10 @@ function RouteMap({
     const update = () => {
       (map.getSource("route") as GeoJSONSource | undefined)?.setData(routeLineData);
       map.fitBounds(route.bounds, { padding: 48, duration: 0 });
+      requestAnimationFrame(() => onVisibleRange(route ? visibleDistanceRange(map, route) : null));
     };
     map.getSource("route") ? update() : map.once("load", update);
-  }, [route, routeLineData]);
+  }, [onVisibleRange, route, routeLineData]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -432,6 +456,7 @@ function ElevationProfile({
   splits,
   hoverIndex,
   activeSegment,
+  focusRange,
   onHover,
   onToggleSplit,
 }: {
@@ -439,6 +464,7 @@ function ElevationProfile({
   splits: number[];
   hoverIndex: number | null;
   activeSegment: Segment | null;
+  focusRange: DistanceRange | null;
   onHover: (index: number | null) => void;
   onToggleSplit: (index: number) => void;
 }) {
@@ -450,7 +476,9 @@ function ElevationProfile({
     if (!element) return;
     const observer = new ResizeObserver(entries => {
       const rect = entries[0]?.contentRect;
-      if (rect) setSize({ width: Math.max(1, rect.width), height: Math.max(1, rect.height) });
+      if (!rect) return;
+      const next = { width: Math.max(1, rect.width), height: Math.max(1, rect.height) };
+      setSize(current => current.width === next.width && current.height === next.height ? current : next);
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -463,41 +491,49 @@ function ElevationProfile({
   const padBottom = 26;
   const points = route?.points ?? [];
   const total = route?.totalDistance || 1;
+  const profileRange = useMemo(() => normalizeProfileRange(focusRange, total), [focusRange, total]);
+  const visiblePoints = useMemo(() => clipProfilePoints(points, profileRange), [points, profileRange]);
   const plotRight = width - padRight;
   const plotBottom = height - padBottom;
   const plotWidth = Math.max(1, plotRight - padLeft);
   const plotHeight = Math.max(1, height - padTop - padBottom);
+  const profileSlopeSegments = useMemo(() => calculateProfileSlopeSegments(visiblePoints), [visiblePoints]);
+
   const profile = useMemo(() => {
-    const elevations = points.map(point => point.ele).filter(ele => ele !== null);
+    const elevations = visiblePoints.map(point => point.ele).filter(ele => ele !== null);
     const minEle = elevations.length ? Math.min(...elevations) : 0;
     const maxEle = elevations.length ? Math.max(...elevations) : 1;
     const yRange = Math.max(1, maxEle - minEle);
-    const xFor = (distance: number) => padLeft + (distance / total) * plotWidth;
+    const rangeDistance = Math.max(1, profileRange.end - profileRange.start);
+    const xFor = (distance: number) => padLeft + ((distance - profileRange.start) / rangeDistance) * plotWidth;
     const yFor = (ele: number | null) => padTop + (1 - ((ele ?? minEle) - minEle) / yRange) * plotHeight;
-    const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${xFor(point.distance).toFixed(2)},${yFor(point.ele).toFixed(2)}`).join(" ");
-    const activePath = activeSegment
-      ? points
-        .slice(activeSegment.start, activeSegment.end + 1)
-        .map((point, index) => `${index === 0 ? "M" : "L"}${xFor(point.distance).toFixed(2)},${yFor(point.ele).toFixed(2)}`)
-        .join(" ")
-      : "";
+    const path = visiblePoints.map((point, index) => `${index === 0 ? "M" : "L"}${xFor(point.distance).toFixed(2)},${yFor(point.ele).toFixed(2)}`).join(" ");
+    const activeRange = activeSegment && points.length
+      ? intersectionRange(profileRange, {
+        start: points[activeSegment.start]?.distance ?? 0,
+        end: points[activeSegment.end]?.distance ?? 0,
+      })
+      : null;
+    const activePoints = activeRange ? clipProfilePoints(points, activeRange) : [];
+    const activePath = activePoints.map((point, index) => `${index === 0 ? "M" : "L"}${xFor(point.distance).toFixed(2)},${yFor(point.ele).toFixed(2)}`).join(" ");
 
     return {
+      activeRange,
       activePath,
       areaPath: `${path} L${plotRight},${plotBottom} L${padLeft},${plotBottom} Z`,
       maxEle,
       minEle,
       path,
-      slopeDetails: calculateProfileSlopeDetails(points),
-      slopeStops: buildSlopeStops(points),
+      slopeStops: buildSlopeStops(visiblePoints, profileSlopeSegments, distance => ((xFor(distance) - padLeft) / plotWidth) * 100),
       x: xFor,
       y: yFor,
       yTicks: [0, 0.25, 0.5, 0.75, 1].map(value => minEle + yRange * value),
     };
-  }, [activeSegment, points, plotBottom, plotHeight, plotRight, plotWidth, total]);
-  const { activePath, areaPath, path, slopeDetails, slopeStops, x, y, yTicks } = profile;
-  const hover = hoverIndex === null ? null : points[hoverIndex];
-  const hoverSlope = hoverIndex === null ? null : slopeDetails[hoverIndex] ?? null;
+  }, [activeSegment, padLeft, points, plotBottom, plotHeight, plotRight, plotWidth, profileRange, profileSlopeSegments, visiblePoints]);
+  const { activeRange, activePath, areaPath, path, slopeStops, x, y, yTicks } = profile;
+  const hoverPoint = hoverIndex === null ? null : points[hoverIndex];
+  const hover = hoverPoint && hoverPoint.distance >= profileRange.start && hoverPoint.distance <= profileRange.end ? hoverPoint : null;
+  const hoverSlope = hover ? slopeDetailAtDistance(visiblePoints, profileSlopeSegments, hover.distance) : null;
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
@@ -518,11 +554,12 @@ function ElevationProfile({
     const svgX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * width;
     const plotX = Math.max(padLeft, Math.min(plotRight, svgX));
     const ratio = (plotX - padLeft) / plotWidth;
-    return nearestPoint(route.points, (ratio * route.totalDistance) / 1000);
+    const distance = profileRange.start + ratio * (profileRange.end - profileRange.start);
+    return nearestPoint(route.points, distance / 1000);
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full">
+    <div ref={containerRef} className="h-full w-full min-w-0 overflow-hidden">
     <svg
       width={width}
       height={height}
@@ -562,11 +599,11 @@ function ElevationProfile({
       ))}
       <line x1={padLeft} x2={padLeft} y1={padTop} y2={plotBottom} className="stroke-border" strokeWidth="1" vectorEffect="non-scaling-stroke" />
       <line x1={padLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} className="stroke-border" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-      {activeSegment && (
+      {activeRange && (
         <rect
-          x={x(points[activeSegment.start]!.distance)}
+          x={x(activeRange.start)}
           y={padTop}
-          width={Math.max(2, x(points[activeSegment.end]!.distance) - x(points[activeSegment.start]!.distance))}
+          width={Math.max(2, x(activeRange.end) - x(activeRange.start))}
           height={plotHeight}
           rx="0"
           className="fill-primary/10"
@@ -584,7 +621,7 @@ function ElevationProfile({
           vectorEffect="non-scaling-stroke"
         />
       )}
-      {splits.map(index => (
+      {splits.filter(index => points[index]!.distance >= profileRange.start && points[index]!.distance <= profileRange.end).map(index => (
         <g key={index}>
           <line x1={x(points[index]!.distance)} x2={x(points[index]!.distance)} y1={padTop} y2={plotBottom} className="stroke-destructive" strokeDasharray="4 4" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
           <circle cx={x(points[index]!.distance)} cy={plotBottom} r="3.5" className="fill-destructive stroke-background" strokeWidth="2" vectorEffect="non-scaling-stroke" />
@@ -643,15 +680,103 @@ function ElevationProfile({
           </g>
         </>
       )}
-      <text x={padLeft} y={height - 7} textAnchor="start" className="fill-muted-foreground font-mono text-[10px]">0.0 km</text>
-      <text x={padLeft + plotWidth / 2} y={height - 7} textAnchor="middle" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(total / 2)}</text>
-      <text x={plotRight} y={height - 7} textAnchor="end" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(total)}</text>
+      <text x={padLeft} y={height - 7} textAnchor="start" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.start)}</text>
+      <text x={padLeft + plotWidth / 2} y={height - 7} textAnchor="middle" className="fill-muted-foreground font-mono text-[10px]">{formatDistance((profileRange.start + profileRange.end) / 2)}</text>
+      <text x={plotRight} y={height - 7} textAnchor="end" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.end)}</text>
     </svg>
     </div>
   );
 }
 
-function buildSlopeStops(points: RouteData["points"]) {
+function normalizeProfileRange(range: DistanceRange | null, total: number): DistanceRange {
+  if (!range || !Number.isFinite(range.start) || !Number.isFinite(range.end) || range.end <= range.start) {
+    return { start: 0, end: total };
+  }
+
+  const start = Math.max(0, Math.min(total, range.start));
+  const end = Math.max(0, Math.min(total, range.end));
+  return end > start ? { start, end } : { start: 0, end: total };
+}
+
+function intersectionRange(first: DistanceRange, second: DistanceRange): DistanceRange | null {
+  const start = Math.max(first.start, second.start);
+  const end = Math.min(first.end, second.end);
+  return end > start ? { start, end } : null;
+}
+
+function clipProfilePoints(points: RouteData["points"], range: DistanceRange): ProfilePoint[] {
+  if (points.length === 0) return [];
+
+  const start = Math.max(points[0]!.distance, range.start);
+  const end = Math.min(points.at(-1)!.distance, range.end);
+  if (end < start) return [];
+
+  const clipped: ProfilePoint[] = [interpolateProfilePoint(points, start)];
+  const startIndex = lowerBoundDistance(points, start);
+  const endIndex = lowerBoundDistance(points, end);
+
+  for (let index = startIndex; index < endIndex; index++) {
+    const point = points[index]!;
+    if (point.distance > start) clipped.push({ distance: point.distance, ele: point.ele });
+  }
+
+  if (end > start) clipped.push(interpolateProfilePoint(points, end));
+  return clipped;
+}
+
+function interpolateProfilePoint(points: RouteData["points"], distance: number): ProfilePoint {
+  if (distance <= points[0]!.distance) return { distance, ele: points[0]!.ele };
+  if (distance >= points.at(-1)!.distance) return { distance, ele: points.at(-1)!.ele };
+
+  const index = lowerBoundDistance(points, distance);
+  const after = points[index]!;
+  const before = points[index - 1]!;
+  if (after.distance === distance) return { distance, ele: after.ele };
+
+  const ratio = (distance - before.distance) / Math.max(1, after.distance - before.distance);
+  const ele = before.ele === null && after.ele === null
+    ? null
+    : before.ele === null
+      ? after.ele
+      : after.ele === null
+        ? before.ele
+        : before.ele + (after.ele - before.ele) * ratio;
+
+  return { distance, ele };
+}
+
+function lowerBoundDistance(points: ProfilePoint[], distance: number) {
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (points[mid]!.distance < distance) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function slopeDetailAtDistance(points: ProfilePoint[], segments: ProfileSlopeSegment[], distance: number) {
+  let low = 0;
+  let high = segments.length - 1;
+  while (low <= high) {
+    const index = Math.floor((low + high) / 2);
+    const segment = segments[index]!;
+    const start = points[segment.start]?.distance ?? 0;
+    const end = points[segment.end]?.distance ?? start;
+    if (distance >= start && distance <= end) return { slope: segment.slope, distance: segment.distance };
+    if (distance < start) high = index - 1;
+    else low = index + 1;
+  }
+
+  return null;
+}
+
+function buildSlopeStops(
+  points: ProfilePoint[],
+  segments: ProfileSlopeSegment[],
+  offsetForDistance: (distance: number) => number,
+) {
   if (points.length < 2) return [];
 
   const total = points.at(-1)?.distance ?? 0;
@@ -659,14 +784,14 @@ function buildSlopeStops(points: RouteData["points"]) {
 
   const stops: { offset: number; color: string }[] = [];
 
-  for (const segment of calculateProfileSlopeSegments(points)) {
+  for (const segment of segments) {
     const start = points[segment.start]!;
     const end = points[segment.end]!;
     if (end.distance <= start.distance) continue;
 
     const color = getSlopeColor(segment.slope);
-    const startOffset = (start.distance / total) * 100;
-    const endOffset = (end.distance / total) * 100;
+    const startOffset = offsetForDistance(start.distance);
+    const endOffset = offsetForDistance(end.distance);
 
     stops.push({ offset: startOffset, color });
     stops.push({ offset: endOffset, color });
@@ -841,6 +966,69 @@ function nearestScreenPoint(map: Map, route: RouteData, clickPoint: maplibregl.P
   }
 
   return bestIndex;
+}
+
+function visibleDistanceRange(map: Map, route: RouteData): DistanceRange | null {
+  const canvas = map.getCanvas();
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  let startIndex: number | null = null;
+  let endIndex: number | null = null;
+  let previous: { x: number; y: number; index: number } | null = null;
+
+  for (const point of route.points) {
+    const screenPoint = map.project([point.lon, point.lat]);
+    const current = { x: screenPoint.x, y: screenPoint.y, index: point.index };
+    if (pointInRect(current, width, height) || (previous && segmentIntersectsRect(previous, current, width, height))) {
+      startIndex = startIndex ?? (previous?.index ?? current.index);
+      endIndex = current.index;
+    }
+    previous = current;
+  }
+
+  if (startIndex === null || endIndex === null) return null;
+
+  const start = route.points[startIndex]?.distance ?? 0;
+  const end = route.points[endIndex]?.distance ?? start;
+  if (end > start) return { start, end };
+
+  const padding = route.totalDistance * 0.005;
+  return {
+    start: Math.max(0, start - padding),
+    end: Math.min(route.totalDistance, end + padding),
+  };
+}
+
+function pointInRect(point: { x: number; y: number }, width: number, height: number) {
+  return point.x >= 0 && point.x <= width && point.y >= 0 && point.y <= height;
+}
+
+function segmentIntersectsRect(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  width: number,
+  height: number,
+) {
+  if (pointInRect(start, width, height) || pointInRect(end, width, height)) return true;
+  return lineSegmentsIntersect(start, end, { x: 0, y: 0 }, { x: width, y: 0 })
+    || lineSegmentsIntersect(start, end, { x: width, y: 0 }, { x: width, y: height })
+    || lineSegmentsIntersect(start, end, { x: width, y: height }, { x: 0, y: height })
+    || lineSegmentsIntersect(start, end, { x: 0, y: height }, { x: 0, y: 0 });
+}
+
+function lineSegmentsIntersect(
+  firstStart: { x: number; y: number },
+  firstEnd: { x: number; y: number },
+  secondStart: { x: number; y: number },
+  secondEnd: { x: number; y: number },
+) {
+  const direction = (a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }) =>
+    (c.x - a.x) * (b.y - a.y) - (b.x - a.x) * (c.y - a.y);
+  const d1 = direction(secondStart, secondEnd, firstStart);
+  const d2 = direction(secondStart, secondEnd, firstEnd);
+  const d3 = direction(firstStart, firstEnd, secondStart);
+  const d4 = direction(firstStart, firstEnd, secondEnd);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
 export default App;
