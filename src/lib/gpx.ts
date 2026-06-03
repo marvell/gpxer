@@ -149,7 +149,7 @@ export function exportSegmentGpx(route: RouteData, segment: Segment): string {
   const doc = document.implementation.createDocument(GPX_NAMESPACE, "gpx");
   const root = doc.documentElement;
   root.setAttribute("version", route.document.documentElement.getAttribute("version") || "1.1");
-  root.setAttribute("creator", "gpxsplit");
+  root.setAttribute("creator", "gpxer");
 
   const trk = doc.createElementNS(GPX_NAMESPACE, "trk");
   const name = doc.createElementNS(GPX_NAMESPACE, "name");

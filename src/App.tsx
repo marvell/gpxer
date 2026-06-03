@@ -161,7 +161,7 @@ export function App() {
             <Route className="size-4" />
           </div>
           <div className="min-w-0 leading-tight">
-            <div className="whitespace-nowrap text-sm font-semibold tracking-tight">GPX Splitter</div>
+            <div className="whitespace-nowrap text-sm font-semibold tracking-tight">GPXer</div>
             <div className="max-w-[200px] truncate text-[11px] text-muted-foreground">{route?.name ?? "No file loaded"}</div>
           </div>
         </div>

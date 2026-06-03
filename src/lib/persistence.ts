@@ -18,7 +18,7 @@ type StoredRouteState = RoutePersistenceRecord & {
   key: typeof ROUTE_STATE_KEY;
 };
 
-const DB_NAME = "gpxsplit";
+const DB_NAME = "gpxer";
 const STORE_NAME = "route-state";
 const ROUTE_STATE_KEY = "last-route";
 const SCHEMA_VERSION = 1;

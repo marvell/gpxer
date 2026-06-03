@@ -1,4 +1,4 @@
-# bun-react-tailwind-shadcn-template
+# GPXer
 
 To install dependencies:
 
