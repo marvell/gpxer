@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calculateElevationChange, type RoutePoint } from "./gpx";
+import { calculateElevationChange, calculateProfileSlopeDetails, calculateProfileSlopeSegments, calculateProfileSlopes, getSlopeColor, type RoutePoint } from "./gpx";
 
 function point(distance: number, ele: number | null, sourceSegment = 0): RoutePoint {
   return {
@@ -49,4 +49,43 @@ test("treats missing elevation as zero in the smoothing window", () => {
 
   expect(result.ascent).toBeCloseTo(46.6666666667, 5);
   expect(result.descent).toBeCloseTo(26.6666666667, 5);
+});
+
+test("uses app-friendly slope colors", () => {
+  expect(getSlopeColor(0)).toBe("oklch(0.9 0.02 95)");
+  expect(getSlopeColor(30)).toBe(getSlopeColor(20));
+  expect(getSlopeColor(-30)).toBe(getSlopeColor(-20));
+  expect(getSlopeColor(10)).not.toBe(getSlopeColor(-10));
+});
+
+test("calculates profile slopes from simplified elevation spans", () => {
+  const slopes = calculateProfileSlopes([
+    point(0, 100),
+    point(100, 110),
+    point(200, 140),
+  ]);
+
+  expect(slopes).toEqual([20, 20, 20]);
+});
+
+test("calculates profile slope distances", () => {
+  const details = calculateProfileSlopeDetails([
+    point(0, 100),
+    point(100, 120),
+  ]);
+
+  expect(details).toEqual([
+    { slope: 20, distance: 100 },
+    { slope: 20, distance: 100 },
+  ]);
+});
+
+test("returns simplified profile slope segments", () => {
+  const segments = calculateProfileSlopeSegments([
+    point(0, 100),
+    point(100, 110),
+    point(200, 140),
+  ]);
+
+  expect(segments).toEqual([{ start: 0, end: 2, slope: 20, distance: 200 }]);
 });

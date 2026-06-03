@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   buildSegments,
+  calculateProfileSlopeDetails,
+  calculateProfileSlopeSegments,
   downloadText,
   exportSegmentGpx,
   formatDistance,
   formatElevation,
+  getSlopeColor,
   nearestPoint,
   parseGpx,
   safeFileName,
@@ -475,14 +478,18 @@ function ElevationProfile({
   const y = (ele: number | null) => padTop + (1 - ((ele ?? minEle) - minEle) / yRange) * plotHeight;
   const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.distance).toFixed(2)},${y(point.ele).toFixed(2)}`).join(" ");
   const areaPath = `${path} L${plotRight},${plotBottom} L${padLeft},${plotBottom} Z`;
+  const slopeDetails = calculateProfileSlopeDetails(points);
+  const slopeStops = buildSlopeStops(points);
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map(value => minEle + yRange * value);
   const hover = hoverIndex === null ? null : points[hoverIndex];
+  const hoverSlope = hoverIndex === null ? null : slopeDetails[hoverIndex] ?? null;
+  const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
   const hoverLabelWidth = 138;
-  const hoverLabelHeight = 32;
+  const hoverLabelHeight = 58;
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
-  const hoverLabelY = hoverY < 44 ? hoverY + 14 : hoverY - 36;
+  const hoverLabelY = hoverY < 70 ? hoverY + 14 : hoverY - 62;
 
   function indexFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
     if (!route) return null;
@@ -509,9 +516,17 @@ function ElevationProfile({
       }}
     >
       <defs>
-        <linearGradient id="elevation-fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.02" />
+        <linearGradient id="elevation-fill" x1="0" x2="1" y1="0" y2="0">
+          {slopeStops.length > 0 ? (
+            slopeStops.map((stop, index) => (
+              <stop key={`${stop.offset}-${index}`} offset={`${stop.offset}%`} stopColor={stop.color} stopOpacity="0.72" />
+            ))
+          ) : (
+            <>
+              <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.02" />
+            </>
+          )}
         </linearGradient>
       </defs>
       <rect x="0" y="0" width={width} height={height} rx="0" className="fill-muted/40" />
@@ -569,6 +584,13 @@ function ElevationProfile({
             <text x={hoverLabelX + 8} y={hoverLabelY + 25} className="fill-foreground font-mono text-[11px] font-semibold">
               Elevation: {formatElevation(hover.ele)}
             </text>
+            <text x={hoverLabelX + 8} y={hoverLabelY + 39} className="fill-muted-foreground font-mono text-[10px]">
+              Slope dist: {formatDistance(hoverSlope?.distance ?? 0)}
+            </text>
+            <rect x={hoverLabelX + 8} y={hoverLabelY + 44} width="8" height="8" fill={hoverSlopeColor} stroke="currentColor" className="text-border" vectorEffect="non-scaling-stroke" />
+            <text x={hoverLabelX + 8} y={hoverLabelY + 53} className="fill-foreground font-mono text-[11px] font-semibold">
+              <tspan dx="14">Avg slope: {formatSlope(hoverSlope?.slope ?? 0)}</tspan>
+            </text>
           </g>
         </>
       )}
@@ -578,6 +600,34 @@ function ElevationProfile({
     </svg>
     </div>
   );
+}
+
+function buildSlopeStops(points: RouteData["points"]) {
+  if (points.length < 2) return [];
+
+  const total = points.at(-1)?.distance ?? 0;
+  if (total <= 0) return [];
+
+  const stops: { offset: number; color: string }[] = [];
+
+  for (const segment of calculateProfileSlopeSegments(points)) {
+    const start = points[segment.start]!;
+    const end = points[segment.end]!;
+    if (end.distance <= start.distance) continue;
+
+    const color = getSlopeColor(segment.slope);
+    const startOffset = (start.distance / total) * 100;
+    const endOffset = (end.distance / total) * 100;
+
+    stops.push({ offset: startOffset, color });
+    stops.push({ offset: endOffset, color });
+  }
+
+  return stops;
+}
+
+function formatSlope(slope: number) {
+  return `${slope.toFixed(1)}%`;
 }
 
 function SegmentRow({

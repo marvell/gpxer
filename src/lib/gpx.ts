@@ -228,6 +228,63 @@ export function calculateElevationChange(points: Pick<RoutePoint, "ele" | "dista
   return { ascent, descent };
 }
 
+const MAX_SLOPE = 20;
+
+export function getSlopeColor(slope: number) {
+  const clampedSlope = Math.max(-MAX_SLOPE, Math.min(MAX_SLOPE, slope));
+  const downhill = { lightness: 0.6, chroma: 0.118, hue: 184.704 };
+  const flat = { lightness: 0.9, chroma: 0.02, hue: 95 };
+  const uphill = { lightness: 0.646, chroma: 0.222, hue: 41.116 };
+  const from = clampedSlope < 0 ? flat : flat;
+  const to = clampedSlope < 0 ? downhill : uphill;
+  const ratio = Math.abs(clampedSlope) / MAX_SLOPE;
+  const lightness = from.lightness + (to.lightness - from.lightness) * ratio;
+  const chroma = from.chroma + (to.chroma - from.chroma) * ratio;
+  const hue = from.hue + (to.hue - from.hue) * ratio;
+
+  return `oklch(${roundColor(lightness)} ${roundColor(chroma)} ${roundColor(hue)})`;
+}
+
+function roundColor(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+export function calculateProfileSlopes(points: Pick<RoutePoint, "ele" | "distance">[]) {
+  return calculateProfileSlopeDetails(points).map(detail => detail.slope);
+}
+
+export function calculateProfileSlopeSegments(points: Pick<RoutePoint, "ele" | "distance">[]) {
+  if (points.length < 2) return [];
+
+  const simplified = ramerDouglasPeucker(points, 20);
+  const segments: { start: number; end: number; slope: number; distance: number }[] = [];
+
+  for (let i = 0; i < simplified.length - 1; i++) {
+    const start = simplified[i]!;
+    const end = simplified[i + 1]!;
+    const distance = points[end]!.distance - points[start]!.distance;
+    const elevation = (points[end]!.ele ?? 0) - (points[start]!.ele ?? 0);
+    const slope = distance > 0 ? (elevation / distance) * 100 : 0;
+    segments.push({ start, end, slope, distance });
+  }
+
+  return segments;
+}
+
+export function calculateProfileSlopeDetails(points: Pick<RoutePoint, "ele" | "distance">[]) {
+  const details = Array.from({ length: points.length }, () => ({ slope: 0, distance: 0 }));
+
+  const segments = calculateProfileSlopeSegments(points);
+  for (let i = 0; i < segments.length; i++) {
+    const { start, end, slope, distance } = segments[i]!;
+    for (let index = start; index < end + (i + 1 === segments.length ? 1 : 0); index++) {
+      details[index] = { slope, distance };
+    }
+  }
+
+  return details;
+}
+
 function baseName(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "");
 }
