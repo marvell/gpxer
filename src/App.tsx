@@ -41,6 +41,7 @@ export function App() {
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationAction | null>(null);
   const hoverIndexRef = useRef<number | null>(null);
   const mapDistanceRangeRef = useRef<DistanceRange | null>(null);
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
@@ -117,6 +118,7 @@ export function App() {
       setHoverIndexIfChanged(null);
       setMapDistanceRangeIfChanged(null);
       setActiveSegmentId(1);
+      setPendingConfirmation(null);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not parse GPX file.");
@@ -131,7 +133,21 @@ export function App() {
     setHoverIndexIfChanged(null);
     setMapDistanceRangeIfChanged(null);
     setActiveSegmentId(null);
+    setPendingConfirmation(null);
     setError(null);
+  }
+
+  function confirmOrRun(action: ConfirmationAction, run: () => void) {
+    if (segments.length > 1 && pendingConfirmation !== action) {
+      setPendingConfirmation(action);
+      return;
+    }
+    setPendingConfirmation(null);
+    run();
+  }
+
+  function resetConfirmation(action: ConfirmationAction) {
+    setPendingConfirmation(current => (current === action ? null : current));
   }
 
   function toggleSplit(index: number) {
@@ -180,21 +196,42 @@ export function App() {
           <div className="ml-auto flex items-center gap-2">
             <HelpTooltip content="Remove all split points. The loaded GPX route stays open.">
               <span className="inline-flex">
-                <Button variant="outline" size="sm" onClick={() => route && setSplits([])} disabled={!route || splits.length === 0}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => route && confirmOrRun(CONFIRMATION_ACTION.clear, () => setSplits([]))}
+                  onMouseLeave={() => resetConfirmation(CONFIRMATION_ACTION.clear)}
+                  disabled={!route || splits.length === 0}
+                >
                   <Trash2 />
-                  <span className="hidden sm:inline">Clear splits</span>
+                  <span className="hidden sm:inline">{pendingConfirmation === CONFIRMATION_ACTION.clear ? CONFIRM_LABEL : "Clear splits"}</span>
                 </Button>
               </span>
             </HelpTooltip>
             <HelpTooltip content="Close this route and remove its saved local copy from this browser.">
               <span className="inline-flex">
-                <Button variant="outline" size="sm" onClick={forgetRoute} disabled={!route}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => confirmOrRun(CONFIRMATION_ACTION.forget, () => void forgetRoute())}
+                  onMouseLeave={() => resetConfirmation(CONFIRMATION_ACTION.forget)}
+                  disabled={!route}
+                >
                   <X />
-                  <span className="hidden sm:inline">Forget route</span>
+                  <span className="hidden sm:inline">{pendingConfirmation === CONFIRMATION_ACTION.forget ? CONFIRM_LABEL : "Forget route"}</span>
                 </Button>
               </span>
             </HelpTooltip>
-            <UploadButton onFile={onUpload} variant={route ? "outline" : "default"} />
+            <UploadButton
+              onFile={onUpload}
+              variant={route ? "outline" : "default"}
+              confirmation={{
+                required: segments.length > 1,
+                active: pendingConfirmation === CONFIRMATION_ACTION.upload,
+                request: () => setPendingConfirmation(CONFIRMATION_ACTION.upload),
+                clear: () => resetConfirmation(CONFIRMATION_ACTION.upload),
+              }}
+            />
           </div>
         </header>
 
@@ -287,9 +324,22 @@ export function App() {
 }
 
 const GPX_ACCEPT = ".gpx,application/gpx+xml,text/xml,application/xml";
+const CONFIRM_LABEL = "Confirm?";
+const CONFIRMATION_ACTION = {
+  clear: "clear",
+  forget: "forget",
+  upload: "upload",
+} as const;
 const HINT_CHIP_CLASS = "rounded-[2px] border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur";
 const SEGMENT_MARKER_CLASS = "grid size-5 shrink-0 place-items-center rounded-[1px] border-2 border-background bg-destructive font-mono text-[10px] font-bold leading-none text-white";
 type DistanceRange = { start: number; end: number };
+type ConfirmationAction = (typeof CONFIRMATION_ACTION)[keyof typeof CONFIRMATION_ACTION];
+type ConfirmationState = {
+  required: boolean;
+  active: boolean;
+  request: () => void;
+  clear: () => void;
+};
 type ProfilePoint = Pick<RouteData["points"][number], "distance" | "ele">;
 type ProfileSlopeSegment = ReturnType<typeof calculateProfileSlopeSegments>[number];
 
@@ -313,15 +363,32 @@ function mapSplitMarkerImage(fill: string, stroke: string) {
   return context.getImageData(0, 0, size, size);
 }
 
-function UploadButton({ onFile, variant }: { onFile: (file: File | undefined) => void; variant: "default" | "outline" }) {
+function UploadButton({
+  onFile,
+  variant,
+  confirmation,
+}: {
+  onFile: (file: File | undefined) => void;
+  variant: "default" | "outline";
+  confirmation: ConfirmationState;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  function openFilePicker() {
+    if (confirmation.required && !confirmation.active) {
+      confirmation.request();
+      return;
+    }
+    confirmation.clear();
+    inputRef.current?.click();
+  }
+
   return (
     <HelpTooltip content="Open a GPX track file from your device. Processing happens in this browser.">
-      <Button asChild size="sm" variant={variant}>
-        <label className="cursor-pointer">
-          <Upload />
-          Upload GPX
-          <input type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
-        </label>
+      <Button size="sm" variant={variant} onClick={openFilePicker} onMouseLeave={confirmation.clear}>
+        <Upload />
+        {confirmation.active ? CONFIRM_LABEL : "Upload GPX"}
+        <input ref={inputRef} type="file" accept={GPX_ACCEPT} className="sr-only" onChange={event => onFile(event.currentTarget.files?.[0])} />
       </Button>
     </HelpTooltip>
   );
