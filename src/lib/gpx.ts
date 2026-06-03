@@ -164,17 +164,24 @@ export function downloadText(fileName: string, text: string) {
 }
 
 export function nearestPoint(points: RoutePoint[], distanceKm: number) {
-  let best = 0;
-  let bestDelta = Number.POSITIVE_INFINITY;
   const target = distanceKm * 1000;
-  for (const point of points) {
-    const delta = Math.abs(point.distance - target);
-    if (delta < bestDelta) {
-      best = point.index;
-      bestDelta = delta;
-    }
+
+  if (points.length === 0) return 0;
+  if (target <= points[0]!.distance) return points[0]!.index;
+  if (target >= points.at(-1)!.distance) return points.at(-1)!.index;
+
+  let low = 0;
+  let high = points.length - 1;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (points[mid]!.distance < target) low = mid + 1;
+    else high = mid;
   }
-  return best;
+
+  const before = points[low - 1]!;
+  const after = points[low]!;
+  return target - before.distance <= after.distance - target ? before.index : after.index;
 }
 
 export function formatDistance(meters: number) {

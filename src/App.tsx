@@ -19,7 +19,7 @@ import {
 import { Download, Route, Trash2, Upload } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
 
 export function App() {
@@ -30,8 +30,14 @@ export function App() {
   const [selectedSegments, setSelectedSegments] = useState<Set<number>>(new Set());
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const previousSegmentIdsRef = useRef<number[]>([]);
+  const hoverIndexRef = useRef<number | null>(null);
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
   const activeSegment = segments.find(segment => segment.id === activeSegmentId) ?? null;
+  const setHoverIndexIfChanged = useCallback((index: number | null) => {
+    if (hoverIndexRef.current === index) return;
+    hoverIndexRef.current = index;
+    setHoverIndex(index);
+  }, []);
 
   useEffect(() => {
     const previousIds = previousSegmentIdsRef.current;
@@ -51,7 +57,7 @@ export function App() {
       const parsed = parseGpx(await file.text(), file.name);
       setRoute(parsed);
       setSplits([]);
-      setHoverIndex(null);
+      setHoverIndexIfChanged(null);
       setActiveSegmentId(1);
       setError(null);
     } catch (reason) {
@@ -129,7 +135,7 @@ export function App() {
                 splits={splits}
                 hoverIndex={hoverIndex}
                 activeSegment={activeSegment}
-                onHover={setHoverIndex}
+                onHover={setHoverIndexIfChanged}
                 onToggleSplit={toggleSplit}
               />
               <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-1.5 text-[11px]">
@@ -148,7 +154,7 @@ export function App() {
                   splits={splits}
                   hoverIndex={hoverIndex}
                   activeSegment={activeSegment}
-                  onHover={setHoverIndex}
+                  onHover={setHoverIndexIfChanged}
                   onToggleSplit={toggleSplit}
                 />
               </div>
@@ -194,7 +200,7 @@ export function App() {
                       return next;
                     });
                   }}
-                  onHover={setHoverIndex}
+                  onHover={setHoverIndexIfChanged}
                 />
               ))}
             </div>
@@ -281,10 +287,19 @@ function RouteMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const rafRef = useRef<number | null>(null);
-  const splitMarkersRef = useRef<maplibregl.Marker[]>([]);
   const routeRef = useRef<RouteData | null>(null);
   const onHoverRef = useRef(onHover);
   const onToggleSplitRef = useRef(onToggleSplit);
+  const routeLineData = useMemo(() => (route ? lineData(route) : null), [route]);
+  const activeSegmentLineData = useMemo(
+    () => (route && activeSegment ? segmentLineData(route, activeSegment) : emptyLine().data),
+    [route, activeSegment],
+  );
+  const splitPointData = useMemo(() => (route ? pointData(route, splits) : emptyPoints().data), [route, splits]);
+  const hoverPointData = useMemo(
+    () => (route ? pointData(route, hoverIndex === null ? [] : [hoverIndex]) : emptyPoints().data),
+    [route, hoverIndex],
+  );
 
   routeRef.current = route;
   onHoverRef.current = onHover;
@@ -360,8 +375,6 @@ function RouteMap({
     });
     mapRef.current = map;
     return () => {
-      splitMarkersRef.current.forEach(marker => marker.remove());
-      splitMarkersRef.current = [];
       map.remove();
       mapRef.current = null;
     };
@@ -369,58 +382,41 @@ function RouteMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !route) return;
+    if (!map || !route || !routeLineData) return;
     const update = () => {
-      (map.getSource("route") as GeoJSONSource | undefined)?.setData(lineData(route));
+      (map.getSource("route") as GeoJSONSource | undefined)?.setData(routeLineData);
       map.fitBounds(route.bounds, { padding: 48, duration: 0 });
     };
     map.getSource("route") ? update() : map.once("load", update);
-  }, [route]);
+  }, [route, routeLineData]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !route) return;
     const update = () => {
-      (map.getSource("active-segment") as GeoJSONSource | undefined)?.setData(activeSegment ? segmentLineData(route, activeSegment) : emptyLine().data);
+      (map.getSource("active-segment") as GeoJSONSource | undefined)?.setData(activeSegmentLineData);
       if (activeSegment) {
         map.fitBounds(segmentBounds(route, activeSegment), { padding: 72, duration: 350, maxZoom: 15 });
       }
     };
     map.getSource("active-segment") ? update() : map.once("load", update);
-  }, [route, activeSegment]);
+  }, [route, activeSegment, activeSegmentLineData]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !route) return;
     const update = () => {
-      (map.getSource("splits") as GeoJSONSource | undefined)?.setData(pointData(route, splits));
-      splitMarkersRef.current.forEach(marker => marker.remove());
-      splitMarkersRef.current = splits.map(index => {
-        const point = route.points[index]!;
-        const markerElement = document.createElement("button");
-        markerElement.type = "button";
-        markerElement.title = "Remove split";
-        markerElement.className =
-          "size-4 rounded-full border-2 border-white bg-red-500 shadow-md ring-2 ring-red-500/25";
-        markerElement.addEventListener("click", event => {
-          event.preventDefault();
-          event.stopPropagation();
-          onToggleSplitRef.current(index);
-        });
-        return new maplibregl.Marker({ element: markerElement, anchor: "center" })
-          .setLngLat([point.lon, point.lat])
-          .addTo(map);
-      });
+      (map.getSource("splits") as GeoJSONSource | undefined)?.setData(splitPointData);
     };
     map.getSource("splits") ? update() : map.once("load", update);
-  }, [route, splits]);
+  }, [route, splitPointData]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !route) return;
-    const update = () => (map.getSource("hover") as GeoJSONSource | undefined)?.setData(pointData(route, hoverIndex === null ? [] : [hoverIndex]));
+    const update = () => (map.getSource("hover") as GeoJSONSource | undefined)?.setData(hoverPointData);
     map.getSource("hover") ? update() : map.once("load", update);
-  }, [route, hoverIndex]);
+  }, [route, hoverPointData]);
 
   return (
     <div className="relative h-full min-h-[420px]">
@@ -465,22 +461,40 @@ function ElevationProfile({
   const padTop = 12;
   const padBottom = 26;
   const points = route?.points ?? [];
-  const elevations = points.map(point => point.ele).filter(ele => ele !== null);
-  const minEle = elevations.length ? Math.min(...elevations) : 0;
-  const maxEle = elevations.length ? Math.max(...elevations) : 1;
   const total = route?.totalDistance || 1;
-  const yRange = Math.max(1, maxEle - minEle);
   const plotRight = width - padRight;
   const plotBottom = height - padBottom;
   const plotWidth = Math.max(1, plotRight - padLeft);
   const plotHeight = Math.max(1, height - padTop - padBottom);
-  const x = (distance: number) => padLeft + (distance / total) * plotWidth;
-  const y = (ele: number | null) => padTop + (1 - ((ele ?? minEle) - minEle) / yRange) * plotHeight;
-  const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.distance).toFixed(2)},${y(point.ele).toFixed(2)}`).join(" ");
-  const areaPath = `${path} L${plotRight},${plotBottom} L${padLeft},${plotBottom} Z`;
-  const slopeDetails = calculateProfileSlopeDetails(points);
-  const slopeStops = buildSlopeStops(points);
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(value => minEle + yRange * value);
+  const profile = useMemo(() => {
+    const elevations = points.map(point => point.ele).filter(ele => ele !== null);
+    const minEle = elevations.length ? Math.min(...elevations) : 0;
+    const maxEle = elevations.length ? Math.max(...elevations) : 1;
+    const yRange = Math.max(1, maxEle - minEle);
+    const xFor = (distance: number) => padLeft + (distance / total) * plotWidth;
+    const yFor = (ele: number | null) => padTop + (1 - ((ele ?? minEle) - minEle) / yRange) * plotHeight;
+    const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${xFor(point.distance).toFixed(2)},${yFor(point.ele).toFixed(2)}`).join(" ");
+    const activePath = activeSegment
+      ? points
+        .slice(activeSegment.start, activeSegment.end + 1)
+        .map((point, index) => `${index === 0 ? "M" : "L"}${xFor(point.distance).toFixed(2)},${yFor(point.ele).toFixed(2)}`)
+        .join(" ")
+      : "";
+
+    return {
+      activePath,
+      areaPath: `${path} L${plotRight},${plotBottom} L${padLeft},${plotBottom} Z`,
+      maxEle,
+      minEle,
+      path,
+      slopeDetails: calculateProfileSlopeDetails(points),
+      slopeStops: buildSlopeStops(points),
+      x: xFor,
+      y: yFor,
+      yTicks: [0, 0.25, 0.5, 0.75, 1].map(value => minEle + yRange * value),
+    };
+  }, [activeSegment, points, plotBottom, plotHeight, plotRight, plotWidth, total]);
+  const { activePath, areaPath, path, slopeDetails, slopeStops, x, y, yTicks } = profile;
   const hover = hoverIndex === null ? null : points[hoverIndex];
   const hoverSlope = hoverIndex === null ? null : slopeDetails[hoverIndex] ?? null;
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
@@ -565,10 +579,7 @@ function ElevationProfile({
       <path d={path} className="fill-none stroke-foreground/80" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       {activeSegment && (
         <path
-          d={points
-            .slice(activeSegment.start, activeSegment.end + 1)
-            .map((point, index) => `${index === 0 ? "M" : "L"}${x(point.distance).toFixed(2)},${y(point.ele).toFixed(2)}`)
-            .join(" ")}
+          d={activePath}
           className="fill-none stroke-primary"
           strokeWidth="3"
           strokeLinecap="round"
