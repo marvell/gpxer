@@ -9,11 +9,24 @@ export type RoutePoint = {
   trkpt: Element;
 };
 
+export type Waypoint = {
+  index: number;
+  lat: number;
+  lon: number;
+  ele: number | null;
+  time: string | null;
+  name: string | null;
+  desc: string | null;
+  nearestPointIndex: number;
+  wpt: Element;
+};
+
 export type RouteData = {
   name: string;
   fileName: string;
   document: Document;
   points: RoutePoint[];
+  waypoints: Waypoint[];
   totalDistance: number;
   ascent: number;
   descent: number;
@@ -76,10 +89,7 @@ export function parseGpx(text: string, fileName: string): RouteData {
       const previous = points.at(-1);
       if (previous) distance += haversine(previous.lat, previous.lon, lat, lon);
 
-      bounds[0][0] = Math.min(bounds[0][0], lon);
-      bounds[0][1] = Math.min(bounds[0][1], lat);
-      bounds[1][0] = Math.max(bounds[1][0], lon);
-      bounds[1][1] = Math.max(bounds[1][1], lat);
+      extendBounds(bounds, lon, lat);
 
       points.push({
         index: points.length,
@@ -96,12 +106,15 @@ export function parseGpx(text: string, fileName: string): RouteData {
 
   if (points.length < 2) throw new Error("GPX file has no usable track points.");
   const elevation = calculateElevationChangeBySourceSegment(points);
+  const waypoints = parseWaypoints(document, points);
+  for (const waypoint of waypoints) extendBounds(bounds, waypoint.lon, waypoint.lat);
 
   return {
     name: document.querySelector("trk > name, metadata > name, name")?.textContent?.trim() || baseName(fileName),
     fileName,
     document,
     points,
+    waypoints,
     totalDistance: distance,
     ascent: elevation.ascent,
     descent: elevation.descent,
@@ -155,6 +168,12 @@ export function exportSegmentGpx(route: RouteData, segment: Segment): string {
   const name = doc.createElementNS(GPX_NAMESPACE, "name");
   name.textContent = `${route.name} - ${segment.name}`;
   const trkseg = doc.createElementNS(GPX_NAMESPACE, "trkseg");
+
+  for (const waypoint of route.waypoints) {
+    if (isWaypointInSegment(waypoint, segment)) {
+      root.appendChild(doc.importNode(waypoint.wpt, true));
+    }
+  }
 
   route.points.slice(segment.start, segment.end + 1).forEach(point => {
     trkseg.appendChild(doc.importNode(point.trkpt, true));
@@ -331,6 +350,67 @@ export function calculateProfileSlopeDetails(points: Pick<RoutePoint, "ele" | "d
 
 function baseName(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "");
+}
+
+function parseWaypoints(document: Document, points: RoutePoint[]): Waypoint[] {
+  const waypoints: Waypoint[] = [];
+  const wpts = Array.from(document.querySelectorAll("wpt"));
+
+  for (let index = 0; index < wpts.length; index++) {
+    const wpt = wpts[index]!;
+    const latText = wpt.getAttribute("lat");
+    const lonText = wpt.getAttribute("lon");
+    if (latText === null || lonText === null) continue;
+
+    const lat = Number(latText);
+    const lon = Number(lonText);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    const eleText = wpt.querySelector("ele")?.textContent;
+    const ele = eleText === undefined || eleText === null || eleText === "" ? null : Number(eleText);
+
+    waypoints.push({
+      index,
+      lat,
+      lon,
+      ele: ele !== null && Number.isFinite(ele) ? ele : null,
+      time: wpt.querySelector("time")?.textContent ?? null,
+      name: wpt.querySelector("name")?.textContent?.trim() || null,
+      desc: wpt.querySelector("desc")?.textContent?.trim() || null,
+      nearestPointIndex: nearestRoutePointIndex(points, lat, lon),
+      wpt,
+    });
+  }
+
+  return waypoints;
+}
+
+function isWaypointInSegment(waypoint: Waypoint, segment: Segment) {
+  return waypoint.nearestPointIndex >= segment.start &&
+    waypoint.nearestPointIndex <= segment.end &&
+    (segment.start === 0 || waypoint.nearestPointIndex > segment.start);
+}
+
+function nearestRoutePointIndex(points: RoutePoint[], lat: number, lon: number) {
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const point of points) {
+    const distance = haversine(point.lat, point.lon, lat, lon);
+    if (distance < bestDistance) {
+      bestIndex = point.index;
+      bestDistance = distance;
+    }
+  }
+
+  return bestIndex;
+}
+
+function extendBounds(bounds: [[number, number], [number, number]], lon: number, lat: number) {
+  bounds[0][0] = Math.min(bounds[0][0], lon);
+  bounds[0][1] = Math.min(bounds[0][1], lat);
+  bounds[1][0] = Math.max(bounds[1][0], lon);
+  bounds[1][1] = Math.max(bounds[1][1], lat);
 }
 
 function calculateElevationChangeBySourceSegment(points: RoutePoint[]) {

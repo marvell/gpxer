@@ -1,5 +1,32 @@
 import { expect, test } from "bun:test";
-import { calculateElevationChange, calculateProfileSlopeDetails, calculateProfileSlopeSegments, calculateProfileSlopes, calculateSlopeDistances, getSlopeColor, getSlopeName, type RoutePoint } from "./gpx";
+import { DOMParser } from "linkedom";
+import {
+  buildSegments,
+  calculateElevationChange,
+  calculateProfileSlopeDetails,
+  calculateProfileSlopeSegments,
+  calculateProfileSlopes,
+  calculateSlopeDistances,
+  exportSegmentGpx,
+  getSlopeColor,
+  getSlopeName,
+  parseGpx,
+  type RoutePoint,
+} from "./gpx";
+
+Object.assign(globalThis, {
+  DOMParser,
+  XMLSerializer: class {
+    serializeToString(node: { toString: () => string }) {
+      return node.toString();
+    }
+  },
+  document: {
+    implementation: {
+      createDocument: (_namespace: string, name: string) => new DOMParser().parseFromString(`<${name} />`, "application/xml"),
+    },
+  },
+});
 
 function point(distance: number, ele: number | null, sourceSegment = 0): RoutePoint {
   return {
@@ -119,3 +146,85 @@ test("sums profile slope distances by category", () => {
   expect(distances.find(item => item.label === "+1..+4%")?.distance).toBe(2000);
   expect(distances.find(item => item.label === "> +10%")?.distance).toBe(1000);
 });
+
+test("parses GPX waypoints", () => {
+  const route = parseGpx(gpxWithWaypoints(), "route.gpx");
+
+  expect(route.waypoints).toHaveLength(2);
+  expect(route.waypoints[0]).toMatchObject({
+    index: 0,
+    lat: 10,
+    lon: 20,
+    ele: 100,
+    time: "2026-01-01T00:00:00Z",
+    name: "Start cafe",
+    desc: "Coffee stop",
+    nearestPointIndex: 0,
+  });
+  expect(route.waypoints[1]).toMatchObject({
+    name: "Finish",
+    nearestPointIndex: 2,
+  });
+});
+
+test("skips waypoints with invalid coordinates", () => {
+  const route = parseGpx(`
+    <gpx version="1.1" creator="test">
+      <wpt lat="bad" lon="20"><name>Bad</name></wpt>
+      <wpt lat="10"><name>Missing longitude</name></wpt>
+      <wpt lon="20"><name>Missing latitude</name></wpt>
+      <trk><trkseg>
+        <trkpt lat="10" lon="20" />
+        <trkpt lat="10.1" lon="20.1" />
+      </trkseg></trk>
+    </gpx>
+  `, "route.gpx");
+
+  expect(route.waypoints).toHaveLength(0);
+});
+
+test("exports only waypoints assigned to the segment", () => {
+  const route = parseGpx(gpxWithWaypoints(), "route.gpx");
+  const segments = buildSegments(route.points, [1]);
+
+  expect(exportSegmentGpx(route, segments[0]!)).toContain("<name>Start cafe</name>");
+  expect(exportSegmentGpx(route, segments[0]!)).not.toContain("<name>Finish</name>");
+  expect(exportSegmentGpx(route, segments[1]!)).toContain("<name>Finish</name>");
+  expect(exportSegmentGpx(route, segments[1]!)).not.toContain("<name>Start cafe</name>");
+});
+
+test("exports a split-point waypoint only once", () => {
+  const route = parseGpx(`
+    <gpx version="1.1" creator="test">
+      <wpt lat="10.1" lon="20.1"><name>Split point</name></wpt>
+      <trk><trkseg>
+        <trkpt lat="10" lon="20" />
+        <trkpt lat="10.1" lon="20.1" />
+        <trkpt lat="10.2" lon="20.2" />
+      </trkseg></trk>
+    </gpx>
+  `, "route.gpx");
+  const segments = buildSegments(route.points, [1]);
+
+  expect(exportSegmentGpx(route, segments[0]!)).toContain("<name>Split point</name>");
+  expect(exportSegmentGpx(route, segments[1]!)).not.toContain("<name>Split point</name>");
+});
+
+function gpxWithWaypoints() {
+  return `
+    <gpx version="1.1" creator="test">
+      <wpt lat="10" lon="20">
+        <ele>100</ele>
+        <time>2026-01-01T00:00:00Z</time>
+        <name>Start cafe</name>
+        <desc>Coffee stop</desc>
+      </wpt>
+      <wpt lat="10.2" lon="20.2"><name>Finish</name></wpt>
+      <trk><name>Route</name><trkseg>
+        <trkpt lat="10" lon="20" />
+        <trkpt lat="10.1" lon="20.1" />
+        <trkpt lat="10.2" lon="20.2" />
+      </trkseg></trk>
+    </gpx>
+  `;
+}

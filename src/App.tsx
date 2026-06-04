@@ -200,6 +200,7 @@ export function App() {
               <StatPill label="Asc" value={formatElevation(route.ascent)} help="Total ascent calculated from GPX elevation data." />
               <StatPill label="Desc" value={formatElevation(route.descent)} help="Total descent calculated from GPX elevation data." />
               <StatPill label="Seg" value={String(segments.length)} help="Number of exportable route parts. Cuts + 1." />
+              <StatPill label="Wpt" value={String(route.waypoints.length)} help="Waypoints found in the GPX file." />
               <StatPill label="Cuts" value={String(splits.length)} help="Split points you added on the map or elevation profile." last />
             </div>
           )}
@@ -373,6 +374,7 @@ function routeAnalyticsProperties(route: RouteData, splitCount: number) {
   return {
     point_count: route.points.length,
     split_count: splitCount,
+    waypoint_count: route.waypoints.length,
     segment_count: splitCount + 1,
     total_distance_m: Math.round(route.totalDistance),
     ascent_m: Math.round(route.ascent),
@@ -563,6 +565,7 @@ function RouteMap({
     [route, activeSegment],
   );
   const splitPointData = useMemo(() => (route ? splitPointDataForRoute(route, splits) : emptyPoints().data), [route, splits]);
+  const waypointPointData = useMemo(() => (route ? waypointData(route) : emptyPoints().data), [route]);
   const hoverPointData = useMemo(
     () => (route ? pointData(route, hoverIndex === null ? [] : [hoverIndex]) : emptyPoints().data),
     [route, hoverIndex],
@@ -596,12 +599,14 @@ function RouteMap({
     map.on("load", () => {
       map.addSource("route", emptyLine());
       map.addSource("active-segment", emptyLine());
+      map.addSource("waypoints", emptyPoints());
       map.addSource("splits", emptyPoints());
       map.addSource("hover", emptyPoints());
       const routeColor = cssColor("--primary", "#0072bb");
       const activeColor = cssColor("--ring", "#1e91d6");
       const backgroundColor = cssColor("--background", "#fff");
       const splitColor = cssColor("--destructive", "#e18335");
+      const waypointColor = cssColor("--accent", "#8fc93a");
       const splitMarkerImage = mapSplitMarkerImage(splitColor, backgroundColor);
       if (splitMarkerImage && !map.hasImage("split-marker")) {
         map.addImage("split-marker", splitMarkerImage);
@@ -609,6 +614,27 @@ function RouteMap({
       map.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": routeColor, "line-width": 4 } });
       map.addLayer({ id: "active-segment-line", type: "line", source: "active-segment", paint: { "line-color": activeColor, "line-width": 7, "line-opacity": 0.9 } });
       map.addLayer({ id: "route-hit", type: "line", source: "route", paint: { "line-color": "#000", "line-opacity": 0.01, "line-width": 28 } });
+      map.addLayer({
+        id: "waypoint-points",
+        type: "circle",
+        source: "waypoints",
+        paint: { "circle-radius": 5, "circle-color": waypointColor, "circle-stroke-width": 2, "circle-stroke-color": backgroundColor },
+      });
+      map.addLayer({
+        id: "waypoint-labels",
+        type: "symbol",
+        source: "waypoints",
+        layout: {
+          "text-field": ["get", "label"],
+          "text-font": ["Open Sans Semibold", "Arial Unicode MS Regular"],
+          "text-size": 12,
+          "text-offset": [0, 1.1],
+          "text-anchor": "top",
+          "text-allow-overlap": false,
+          "text-ignore-placement": false,
+        },
+        paint: { "text-color": routeColor, "text-halo-color": backgroundColor, "text-halo-width": 1.5 },
+      });
       map.addLayer({ id: "hover-point", type: "circle", source: "hover", paint: { "circle-radius": 7, "circle-color": activeColor, "circle-stroke-width": 2, "circle-stroke-color": backgroundColor } });
       map.addLayer({
         id: "split-points",
@@ -701,6 +727,15 @@ function RouteMap({
     };
     map.getSource("active-segment") ? update() : map.once("load", update);
   }, [route, activeSegment, activeSegmentLineData]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !route) return;
+    const update = () => {
+      (map.getSource("waypoints") as GeoJSONSource | undefined)?.setData(waypointPointData);
+    };
+    map.getSource("waypoints") ? update() : map.once("load", update);
+  }, [route, waypointPointData]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1348,6 +1383,17 @@ function pointData(
 
 function splitPointDataForRoute(route: RouteData, indexes: number[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
   return pointData(route, indexes, (index, splitPosition) => ({ index, label: String(splitPosition + 1) }));
+}
+
+function waypointData(route: RouteData): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  return {
+    type: "FeatureCollection",
+    features: route.waypoints.map(waypoint => ({
+      type: "Feature",
+      properties: { index: waypoint.index, label: waypoint.name ?? "" },
+      geometry: { type: "Point", coordinates: [waypoint.lon, waypoint.lat] },
+    })),
+  };
 }
 
 function nearestLngLat(route: RouteData, lon: number, lat: number) {
