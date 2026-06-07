@@ -41,7 +41,7 @@ import {
   saveRouteState,
 } from "@/lib/persistence";
 import { clamp } from "@/lib/utils";
-import { Download, Eye, EyeOff, MapPin, Route, Trash2, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -366,14 +366,6 @@ export function App() {
               </div>
               <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
             </div>
-
-            <WaypointPanel
-              route={route}
-              activeWaypointIndex={activeWaypointIndex}
-              showWaypoints={showWaypoints}
-              onSelectWaypoint={setActiveWaypointIndex}
-              onToggleWaypoints={() => setShowWaypoints(current => !current)}
-            />
 
             <SpeedSettingsPanel
               enabled={speedModelEnabled}
@@ -771,91 +763,6 @@ function SlopeLegend() {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function WaypointPanel({
-  route,
-  activeWaypointIndex,
-  showWaypoints,
-  onSelectWaypoint,
-  onToggleWaypoints,
-}: {
-  route: RouteData;
-  activeWaypointIndex: number | null;
-  showWaypoints: boolean;
-  onSelectWaypoint: (index: number | null) => void;
-  onToggleWaypoints: () => void;
-}) {
-  const activeWaypoint = route.waypoints.find(waypoint => waypoint.index === activeWaypointIndex) ?? route.waypoints[0] ?? null;
-  const activePoint = activeWaypoint ? route.points[activeWaypoint.nearestPointIndex] : null;
-
-  return (
-    <section className="border-b px-4 py-3" aria-label="Waypoints">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <MapPin className="size-4 text-accent" />
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide">Waypoints</div>
-            <div className="text-[11px] text-muted-foreground">
-              {route.waypoints.length === 0 ? "No waypoints in this GPX file." : `${route.waypoints.length} marker${route.waypoints.length === 1 ? "" : "s"} from the GPX file.`}
-            </div>
-          </div>
-        </div>
-        {route.waypoints.length > 0 && (
-          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={onToggleWaypoints} aria-pressed={showWaypoints}>
-            {showWaypoints ? <EyeOff /> : <Eye />}
-            {showWaypoints ? "Hide" : "Show"}
-          </Button>
-        )}
-      </div>
-
-      {route.waypoints.length === 0 ? (
-        <div className="mt-2 rounded-[2px] border bg-muted/35 p-2 text-xs text-muted-foreground">Upload a GPX with waypoint tags to show marker details here.</div>
-      ) : (
-        <div className="mt-2 grid gap-2">
-          {activeWaypoint && activePoint && (
-            <div className="rounded-[2px] border bg-muted/35 p-2">
-              <div className="truncate text-sm font-semibold">{waypointName(activeWaypoint)}</div>
-              <div className="mt-1 grid grid-cols-2 gap-1.5 text-[11px]">
-                <WaypointDetail label="Distance" value={formatDistance(activePoint.distance)} />
-                <WaypointDetail label="Elevation" value={formatElevation(activeWaypoint.ele ?? activePoint.ele)} />
-                <WaypointDetail label="Time" value={formatWaypointTime(activeWaypoint.time)} wide />
-              </div>
-              {activeWaypoint.desc && <p className="mt-2 line-clamp-3 text-xs leading-snug text-muted-foreground">{activeWaypoint.desc}</p>}
-            </div>
-          )}
-
-          <div className="flex max-h-28 flex-col gap-1 overflow-auto" aria-label="Waypoint list">
-            {route.waypoints.map(waypoint => {
-              const point = route.points[waypoint.nearestPointIndex];
-              const active = waypoint.index === activeWaypointIndex || (activeWaypointIndex === null && waypoint === activeWaypoint);
-              return (
-                <button
-                  key={waypoint.index}
-                  type="button"
-                  className={`flex items-center justify-between gap-2 rounded-[2px] border px-2 py-1.5 text-left text-xs ${active ? "border-primary bg-background" : "border-border bg-background/70 hover:bg-muted/60"}`}
-                  onClick={() => onSelectWaypoint(waypoint.index)}
-                  aria-pressed={active}
-                >
-                  <span className="min-w-0 truncate font-medium">{waypointName(waypoint)}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{point ? formatDistance(point.distance) : "—"}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function WaypointDetail({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
-  return (
-    <div className={`rounded-[2px] border bg-background px-2 py-1 ${wide ? "col-span-2" : ""}`}>
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="truncate font-mono font-semibold tabular-nums">{value}</div>
     </div>
   );
 }
