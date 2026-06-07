@@ -1,24 +1,36 @@
 import { usePostHog } from "@posthog/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   buildSegments,
   calculateElevationChange,
   calculateProfileSlopeSegments,
+  calculateRouteSpeed,
+  calculateSegmentSpeed,
   downloadText,
   exportSegmentGpx,
+  DEFAULT_SPEED_MODEL_SETTINGS,
   formatDistance,
   formatElevation,
+  formatMovingTime,
+  formatSpeed,
   getSlopeColor,
   getSlopeLabel,
   getSlopeName,
   nearestPoint,
   parseGpx,
   safeFileName,
+  SPEED_MODEL_LIMITS,
   SLOPE_CLASSES,
   type RouteData,
   type Segment,
+  type SpeedEstimate,
+  type SpeedModelSettings,
   type Waypoint,
 } from "@/lib/gpx";
 import {
@@ -28,10 +40,11 @@ import {
   sanitizeSplits,
   saveRouteState,
 } from "@/lib/persistence";
+import { clamp } from "@/lib/utils";
 import { Download, Eye, EyeOff, MapPin, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 
 export function App() {
@@ -45,11 +58,18 @@ export function App() {
   const [activeWaypointIndex, setActiveWaypointIndex] = useState<number | null>(null);
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
+  const [speedModelEnabled, setSpeedModelEnabled] = useState(false);
+  const [speedSettings, setSpeedSettings] = useState<SpeedModelSettings>(DEFAULT_SPEED_MODEL_SETTINGS);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationAction | null>(null);
   const hoverIndexRef = useRef<number | null>(null);
   const mapDistanceRangeRef = useRef<DistanceRange | null>(null);
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
+  const routeSpeed = useMemo(() => (route && speedModelEnabled ? calculateRouteSpeed(route.points, speedSettings) : null), [route, speedModelEnabled, speedSettings]);
+  const segmentSpeeds = useMemo(
+    () => route && speedModelEnabled ? new Map(segments.map(segment => [segment.id, calculateSegmentSpeed(route.points, segment, speedSettings)])) : new Map<number, SpeedEstimate>(),
+    [route, segments, speedModelEnabled, speedSettings],
+  );
   const activeSegment = segments.find(segment => segment.id === activeSegmentId) ?? null;
   const maxSegmentDistance = Math.max(0, ...segments.map(segment => segment.distance));
   const maxSegmentAscent = Math.max(0, ...segments.map(segment => segment.ascent));
@@ -211,10 +231,15 @@ export function App() {
           {route && (
             <div className="ml-2 hidden items-stretch border lg:flex">
               <StatPill label="Dist" value={formatDistance(route.totalDistance)} help="Total route distance from the GPX track points." />
+              {routeSpeed && (
+                <>
+                  <StatPill label="Time" value={formatMovingTime(routeSpeed.movingTimeSeconds)} help="Estimated moving time from your speed settings." />
+                  <StatPill label="Est. speed" value={formatSpeed(routeSpeed.averageSpeedMps)} help="Estimated average moving speed from your speed settings." />
+                </>
+              )}
               <StatPill label="Asc" value={formatElevation(route.ascent)} help="Total ascent calculated from GPX elevation data." />
               <StatPill label="Desc" value={formatElevation(route.descent)} help="Total descent calculated from GPX elevation data." />
               <StatPill label="Seg" value={String(segments.length)} help="Number of exportable route parts. Cuts + 1." />
-              <StatPill label="Wpt" value={String(route.waypoints.length)} help="Waypoints found in the GPX file." />
               <StatPill label="Cuts" value={String(splits.length)} help="Split points you added on the map or elevation profile." last />
             </div>
           )}
@@ -350,6 +375,13 @@ export function App() {
               onToggleWaypoints={() => setShowWaypoints(current => !current)}
             />
 
+            <SpeedSettingsPanel
+              enabled={speedModelEnabled}
+              settings={speedSettings}
+              onEnabledChange={setSpeedModelEnabled}
+              onSettingsChange={setSpeedSettings}
+            />
+
             <div className="flex flex-col gap-2 border-b px-4 py-3">
               <HelpTooltip content={splits.length === 0 ? "Download the unchanged route as one GPX file." : "Download one GPX file for each segment."}>
                 <span className="inline-flex w-full">
@@ -366,6 +398,7 @@ export function App() {
                 <SegmentRow
                   key={segment.id}
                   segment={segment}
+                  speed={segmentSpeeds.get(segment.id)}
                   distanceBalance={maxSegmentDistance > 0 ? segment.distance / maxSegmentDistance : 0}
                   climbBalance={maxSegmentAscent > 0 ? segment.ascent / maxSegmentAscent : 0}
                   active={segment.id === activeSegmentId}
@@ -389,6 +422,22 @@ const CONFIRMATION_ACTION = {
   forget: "forget",
   upload: "upload",
 } as const;
+const CDA_OPTIONS = [
+  { label: "Aero road · 0.28", value: 0.28 },
+  { label: "Road drops · 0.32", value: 0.32 },
+  { label: "Road hoods · 0.36", value: 0.36 },
+  { label: "Endurance · 0.38", value: 0.38 },
+  { label: "Upright · 0.42", value: 0.42 },
+  { label: "Very upright · 0.50", value: 0.5 },
+] as const;
+const CRR_OPTIONS = [
+  { label: "Fast tires · 0.0045", value: 0.0045 },
+  { label: "Good asphalt · 0.0055", value: 0.0055 },
+  { label: "Normal asphalt · 0.0065", value: 0.0065 },
+  { label: "Rough asphalt · 0.0075", value: 0.0075 },
+  { label: "Bad road · 0.0100", value: 0.01 },
+  { label: "Gravel · 0.0150", value: 0.015 },
+] as const;
 const HINT_CHIP_CLASS = "rounded-[2px] border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur";
 const SEGMENT_MARKER_CLASS = "grid size-5 shrink-0 place-items-center rounded-[1px] border-2 border-background bg-destructive font-mono text-[10px] font-bold leading-none text-white";
 type DistanceRange = { start: number; end: number };
@@ -488,6 +537,183 @@ function StatPill({ label, value, help, last }: { label: string; value: string; 
   );
 }
 
+function SpeedSettingsPanel({
+  enabled,
+  settings,
+  onEnabledChange,
+  onSettingsChange,
+}: {
+  enabled: boolean;
+  settings: SpeedModelSettings;
+  onEnabledChange: (enabled: boolean) => void;
+  onSettingsChange: (settings: SpeedModelSettings) => void;
+}) {
+  function update<Key extends keyof SpeedModelSettings>(key: Key, value: number) {
+    if (Object.is(settings[key], value)) return;
+    onSettingsChange({ ...settings, [key]: value });
+  }
+
+  return (
+    <div className="border-b px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle title="Speed estimate" help="Enable custom settings to estimate moving time and average speed." />
+        <Label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <Checkbox checked={enabled} onCheckedChange={checked => onEnabledChange(checked === true)} />
+          Enable
+        </Label>
+      </div>
+
+      {enabled && (
+        <div className="grid grid-cols-2 gap-2">
+          <SpeedNumberInput
+            label="Power"
+            help="Sustained rider power in watts. Higher power makes climbs and flats faster."
+            value={settings.powerWatts}
+            suffix="W"
+            min={SPEED_MODEL_LIMITS.powerWatts.min}
+            max={SPEED_MODEL_LIMITS.powerWatts.max}
+            step={5}
+            onChange={value => update("powerWatts", value)}
+          />
+          <SpeedNumberInput
+            label="Mass"
+            help="Total system mass: rider, bike, bottles, bags, and gear. Higher mass slows climbs."
+            value={settings.massKg}
+            suffix="kg"
+            min={SPEED_MODEL_LIMITS.massKg.min}
+            max={SPEED_MODEL_LIMITS.massKg.max}
+            step={1}
+            onChange={value => update("massKg", value)}
+          />
+          <SpeedSelectInput
+            label="Aero position"
+            help="CdA: aerodynamic drag area. Lower values mean a more aero position; higher values mean a more upright position."
+            value={settings.cda}
+            options={CDA_OPTIONS}
+            onChange={value => update("cda", value)}
+          />
+          <SpeedSelectInput
+            label="Tire/road"
+            help="Crr: rolling resistance coefficient. Lower values mean fast tires and smooth asphalt; higher values mean rough roads or gravel."
+            value={settings.crr}
+            options={CRR_OPTIONS}
+            onChange={value => update("crr", value)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SpeedNumberInput({
+  label,
+  help,
+  value,
+  suffix,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  value: number;
+  suffix: string;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  const inputId = useId();
+  const [draft, setDraft] = useState(() => formatSpeedInputValue(value, step));
+  useEffect(() => {
+    setDraft(formatSpeedInputValue(value, step));
+  }, [step, value]);
+
+  return (
+    <div>
+      <InputLabelWithHelp id={inputId} label={label} help={help} />
+      <div className="relative">
+        <Input
+          id={inputId}
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={draft}
+          onChange={event => {
+            const next = event.currentTarget.value;
+            setDraft(next);
+            if (next !== "" && Number.isFinite(Number(next))) onChange(Number(next));
+          }}
+          onBlur={() => {
+            const next = Number(draft);
+            if (!Number.isFinite(next)) {
+              setDraft(formatSpeedInputValue(value, step));
+              return;
+            }
+            const clamped = clamp(next, min, max);
+            if (!Object.is(clamped, value)) onChange(clamped);
+            setDraft(formatSpeedInputValue(clamped, step));
+          }}
+          className={`h-8 ${suffix ? "pr-12" : "pr-2"} font-mono text-xs tabular-nums`}
+        />
+        {suffix && (
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+            {suffix}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SpeedSelectInput({
+  label,
+  help,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  value: number;
+  options: readonly { label: string; value: number }[];
+  onChange: (value: number) => void;
+}) {
+  const selectId = useId();
+  const labelId = `${selectId}-label`;
+
+  return (
+    <div>
+      <InputLabelWithHelp id={selectId} labelId={labelId} label={label} help={help} />
+      <Select value={String(value)} onValueChange={next => onChange(Number(next))}>
+        <SelectTrigger id={selectId} aria-labelledby={labelId} size="sm" className="h-8 w-full font-mono text-xs tabular-nums">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {options.map(option => (
+            <SelectItem key={option.value} value={String(option.value)}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function InputLabelWithHelp({ id, labelId, label, help }: { id: string; labelId?: string; label: string; help: string }) {
+  return (
+    <div className="mb-1 flex items-center gap-1.5">
+      <Label id={labelId} htmlFor={id} className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</Label>
+      <HelpIconButton label={label} help={help} size="sm" />
+    </div>
+  );
+}
+
+function formatSpeedInputValue(value: number, step: number) {
+  return String(Number.isInteger(step) ? Math.round(value) : Number(value.toFixed(step < 0.001 ? 4 : 2)));
+}
+
 function HelpTooltip({ content, children }: { content: string; children: ReactNode }) {
   return (
     <Tooltip>
@@ -501,12 +727,22 @@ function SectionTitle({ title, help }: { title: string; help: string }) {
   return (
     <div className="flex items-center gap-1.5">
       <div className="text-xs font-semibold uppercase tracking-wide">{title}</div>
-      <HelpTooltip content={help}>
-        <button type="button" className="grid size-4 place-items-center rounded-full border text-[10px] font-bold leading-none text-muted-foreground hover:bg-muted">
-          ?
-        </button>
-      </HelpTooltip>
+      <HelpIconButton label={title} help={help} />
     </div>
+  );
+}
+
+function HelpIconButton({ label, help, size = "default" }: { label: string; help: string; size?: "default" | "sm" }) {
+  return (
+    <HelpTooltip content={help}>
+      <button
+        type="button"
+        aria-label={`Help for ${label}`}
+        className={`grid place-items-center rounded-full border font-bold leading-none text-muted-foreground hover:bg-muted ${size === "sm" ? "size-3.5 text-[9px]" : "size-4 text-[10px]"}`}
+      >
+        ?
+      </button>
+    </HelpTooltip>
   );
 }
 
@@ -1475,6 +1711,7 @@ function boxesOverlap(
 
 function SegmentRow({
   segment,
+  speed,
   distanceBalance,
   climbBalance,
   active,
@@ -1482,6 +1719,7 @@ function SegmentRow({
   onExport,
 }: {
   segment: Segment;
+  speed?: SpeedEstimate;
   distanceBalance: number;
   climbBalance: number;
   active: boolean;
@@ -1518,6 +1756,20 @@ function SegmentRow({
                 help="Length of this segment. The blue fill compares it with the longest segment."
                 strong
               />
+              {speed && (
+                <>
+                  <SegmentMetric
+                    label="Time"
+                    value={formatMovingTime(speed.movingTimeSeconds)}
+                    help="Estimated moving time for this segment with the custom speed model."
+                  />
+                  <SegmentMetric
+                    label="Est. speed"
+                    value={formatSpeed(speed.averageSpeedMps)}
+                    help="Estimated average moving speed for this segment."
+                  />
+                </>
+              )}
               <SegmentMetric
                 label="Climb"
                 value={`↑ ${formatElevation(segment.ascent)}`}

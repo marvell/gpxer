@@ -1,3 +1,5 @@
+import { clamp } from "./utils";
+
 export type RoutePoint = {
   index: number;
   lat: number;
@@ -48,6 +50,18 @@ export type Segment = {
   slopeDistances: SlopeDistance[];
 };
 
+export type SpeedModelSettings = {
+  powerWatts: number;
+  massKg: number;
+  cda: number;
+  crr: number;
+};
+
+export type SpeedEstimate = {
+  movingTimeSeconds: number;
+  averageSpeedMps: number;
+};
+
 export type SlopeDistance = {
   name: string;
   label: string;
@@ -56,6 +70,28 @@ export type SlopeDistance = {
 };
 
 const GPX_NAMESPACE = "http://www.topografix.com/GPX/1/1";
+const GRAVITY = 9.80665;
+const ROAD_BIKE = {
+  drivetrainEfficiency: 0.97,
+  airDensity: 1.225,
+  gradeCutoff: 0.015,
+  elevationBufferM: 10,
+  minSpeedMps: 1.2,
+  maxDescentSpeedMps: 40 / 3.6,
+};
+
+export const DEFAULT_SPEED_MODEL_SETTINGS: SpeedModelSettings = {
+  powerWatts: 105,
+  massKg: 95,
+  cda: 0.38,
+  crr: 0.0065,
+};
+export const SPEED_MODEL_LIMITS = {
+  powerWatts: { min: 30, max: 600 },
+  massKg: { min: 40, max: 180 },
+  cda: { min: 0.18, max: 0.7 },
+  crr: { min: 0.003, max: 0.03 },
+} as const;
 
 export function parseGpx(text: string, fileName: string): RouteData {
   const parser = new DOMParser();
@@ -155,6 +191,54 @@ export function buildSegments(points: RoutePoint[], splitIndexes: number[]): Seg
       slopeDistances: calculateSlopeDistances(slice),
     };
   });
+}
+
+export function calculateRouteSpeed(points: Pick<RoutePoint, "distance" | "ele" | "sourceSegment">[], rawSettings: SpeedModelSettings): SpeedEstimate {
+  if (points.length < 2) return { movingTimeSeconds: 0, averageSpeedMps: 0 };
+  return calculateSpeedEstimate(points, sanitizeSpeedSettings(rawSettings), 0, points.length - 1);
+}
+
+function calculateSpeedEstimate(points: Pick<RoutePoint, "distance" | "ele" | "sourceSegment">[], settings: SpeedModelSettings, startIndex: number, endIndex: number): SpeedEstimate {
+  let movingTimeSeconds = 0;
+  let movingDistance = 0;
+  let previousSpeed = Math.min(ROAD_BIKE.maxDescentSpeedMps, 7);
+  let elevationBuffer = 0;
+
+  for (let index = startIndex; index < endIndex; index++) {
+    const start = points[index]!;
+    const end = points[index + 1]!;
+    const distance = end.distance - start.distance;
+    if (distance <= 0 || start.sourceSegment !== end.sourceSegment) continue;
+
+    const rawElevation = (end.ele ?? start.ele ?? 0) - (start.ele ?? end.ele ?? 0);
+    const effectiveElevation = bufferedElevationDelta(rawElevation, distance, elevationBuffer);
+    elevationBuffer = effectiveElevation.buffer;
+    const speed = segmentSpeed(distance, effectiveElevation.delta, settings, previousSpeed);
+    movingDistance += distance;
+    movingTimeSeconds += distance / speed;
+    previousSpeed = speed;
+  }
+
+  return {
+    movingTimeSeconds,
+    averageSpeedMps: movingTimeSeconds > 0 ? movingDistance / movingTimeSeconds : 0,
+  };
+}
+
+export function calculateSegmentSpeed(routePoints: RoutePoint[], segment: Pick<Segment, "start" | "end">, settings: SpeedModelSettings): SpeedEstimate {
+  return calculateSpeedEstimate(routePoints, sanitizeSpeedSettings(settings), segment.start, segment.end);
+}
+
+export function formatMovingTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "—";
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours > 0 ? `${hours}h ${remainder.toString().padStart(2, "0")}m` : `${minutes}m`;
+}
+
+export function formatSpeed(mps: number) {
+  return Number.isFinite(mps) && mps > 0 ? `${(mps * 3.6).toFixed(1)} km/h` : "—";
 }
 
 export function exportSegmentGpx(route: RouteData, segment: Segment): string {
@@ -383,6 +467,95 @@ function parseWaypoints(document: Document, points: RoutePoint[]): Waypoint[] {
   }
 
   return waypoints;
+}
+
+function sanitizeSpeedSettings(settings: SpeedModelSettings): SpeedModelSettings {
+  return {
+    powerWatts: clamp(settings.powerWatts, SPEED_MODEL_LIMITS.powerWatts.min, SPEED_MODEL_LIMITS.powerWatts.max),
+    massKg: clamp(settings.massKg, SPEED_MODEL_LIMITS.massKg.min, SPEED_MODEL_LIMITS.massKg.max),
+    cda: clamp(settings.cda, SPEED_MODEL_LIMITS.cda.min, SPEED_MODEL_LIMITS.cda.max),
+    crr: clamp(settings.crr, SPEED_MODEL_LIMITS.crr.min, SPEED_MODEL_LIMITS.crr.max),
+  };
+}
+
+function bufferedElevationDelta(rawElevation: number, distance: number, buffer: number) {
+  const rawGrade = rawElevation / distance;
+  if (Math.abs(rawGrade) <= ROAD_BIKE.gradeCutoff) return { delta: 0, buffer: shrinkBuffer(buffer, Math.abs(rawElevation)) };
+
+  const cutoffElevation = Math.sign(rawElevation) * ROAD_BIKE.gradeCutoff * distance;
+  const excessElevation = rawElevation - cutoffElevation;
+  const sameDirectionBuffer = Math.sign(buffer) === Math.sign(excessElevation) ? buffer : 0;
+  const nextBuffer = sameDirectionBuffer + excessElevation;
+
+  if (Math.abs(nextBuffer) <= ROAD_BIKE.elevationBufferM) return { delta: cutoffElevation, buffer: nextBuffer };
+
+  const overflow = nextBuffer - Math.sign(nextBuffer) * ROAD_BIKE.elevationBufferM;
+  return { delta: cutoffElevation + overflow, buffer: Math.sign(nextBuffer) * ROAD_BIKE.elevationBufferM };
+}
+
+function shrinkBuffer(buffer: number, amount: number) {
+  if (buffer === 0) return 0;
+  const next = Math.max(0, Math.abs(buffer) - amount);
+  return Math.sign(buffer) * next;
+}
+
+function segmentSpeed(distance: number, elevation: number, settings: SpeedModelSettings, previousSpeed: number) {
+  const sin = distance > 0 ? elevation / Math.sqrt(distance ** 2 + elevation ** 2) : 0;
+  const cos = Math.sqrt(Math.max(0, 1 - sin ** 2));
+  const grade = distance > 0 ? elevation / distance : 0;
+  let power = settings.powerWatts;
+  let gravityMultiplier = 1;
+
+  if (grade <= -0.06) {
+    power = 0;
+    gravityMultiplier = 0.5;
+  } else if (grade <= -0.02) {
+    power = 0;
+  }
+
+  const speed = solveSteadySpeed({
+    powerWatts: power,
+    settings,
+    previousSpeed,
+    sin: sin * gravityMultiplier,
+    cos,
+  });
+
+  return Math.max(ROAD_BIKE.minSpeedMps, Math.min(ROAD_BIKE.maxDescentSpeedMps, speed));
+}
+
+function solveSteadySpeed({
+  powerWatts,
+  settings,
+  previousSpeed,
+  sin,
+  cos,
+}: {
+  powerWatts: number;
+  settings: SpeedModelSettings;
+  previousSpeed: number;
+  sin: number;
+  cos: number;
+}) {
+  let speed = Math.max(ROAD_BIKE.minSpeedMps, Math.min(ROAD_BIKE.maxDescentSpeedMps, previousSpeed || 7));
+  const aero = 0.5 * ROAD_BIKE.airDensity * settings.cda;
+  const rolling = settings.crr * settings.massKg * GRAVITY * cos;
+  const gravity = settings.massKg * GRAVITY * sin;
+  const deliveredPower = powerWatts * ROAD_BIKE.drivetrainEfficiency;
+  const force = rolling + gravity;
+
+  if (deliveredPower === 0 && force < 0) return Math.sqrt(-force / aero);
+
+  for (let iteration = 0; iteration < 16; iteration++) {
+    const value = aero * speed ** 3 + force * speed - deliveredPower;
+    const derivative = 3 * aero * speed ** 2 + force;
+    if (Math.abs(derivative) < 0.001) break;
+    const next = speed - value / derivative;
+    if (!Number.isFinite(next)) break;
+    speed = Math.max(ROAD_BIKE.minSpeedMps, Math.min(ROAD_BIKE.maxDescentSpeedMps, next));
+  }
+
+  return speed;
 }
 
 function isWaypointInSegment(waypoint: Waypoint, segment: Segment) {

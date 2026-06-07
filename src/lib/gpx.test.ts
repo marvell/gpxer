@@ -6,12 +6,18 @@ import {
   calculateProfileSlopeDetails,
   calculateProfileSlopeSegments,
   calculateProfileSlopes,
+  calculateRouteSpeed,
+  calculateSegmentSpeed,
   calculateSlopeDistances,
+  DEFAULT_SPEED_MODEL_SETTINGS,
   exportSegmentGpx,
+  formatMovingTime,
+  formatSpeed,
   getSlopeColor,
   getSlopeName,
   parseGpx,
   type RoutePoint,
+  type SpeedModelSettings,
 } from "./gpx";
 
 Object.assign(globalThis, {
@@ -40,6 +46,18 @@ function point(distance: number, ele: number | null, sourceSegment = 0): RoutePo
     trkpt: {} as Element,
   };
 }
+
+const slowSettings: SpeedModelSettings = {
+  ...DEFAULT_SPEED_MODEL_SETTINGS,
+  powerWatts: 75,
+};
+const fastSettings: SpeedModelSettings = {
+  ...DEFAULT_SPEED_MODEL_SETTINGS,
+  powerWatts: 230,
+  massKg: 85,
+  cda: 0.32,
+  crr: 0.0055,
+};
 
 test("filters small elevation noise", () => {
   const rawGain = 5;
@@ -145,6 +163,99 @@ test("sums profile slope distances by category", () => {
 
   expect(distances.find(item => item.label === "+1..+4%")?.distance).toBe(2000);
   expect(distances.find(item => item.label === "> +10%")?.distance).toBe(1000);
+});
+
+test("estimates higher flat speed for stronger settings", () => {
+  const route = [
+    point(0, 100),
+    point(10000, 100),
+  ];
+
+  const leisure = calculateRouteSpeed(route, slowSettings);
+  const racer = calculateRouteSpeed(route, fastSettings);
+
+  expect(racer.averageSpeedMps).toBeGreaterThan(leisure.averageSpeedMps);
+  expect(racer.movingTimeSeconds).toBeLessThan(leisure.movingTimeSeconds);
+});
+
+test("estimates climbs slower than flats", () => {
+  const flat = calculateRouteSpeed([
+    point(0, 100),
+    point(5000, 100),
+  ], DEFAULT_SPEED_MODEL_SETTINGS);
+  const climb = calculateRouteSpeed([
+    point(0, 100),
+    point(5000, 350),
+  ], DEFAULT_SPEED_MODEL_SETTINGS);
+
+  expect(climb.averageSpeedMps).toBeLessThan(flat.averageSpeedMps);
+  expect(climb.movingTimeSeconds).toBeGreaterThan(flat.movingTimeSeconds);
+});
+
+test("clamps steep descent speed to 40 km/h", () => {
+  const route = [
+    point(0, 500),
+    point(5000, 0),
+  ];
+
+  expect(calculateRouteSpeed(route, slowSettings).averageSpeedMps).toBeLessThanOrEqual(40 / 3.6);
+  expect(calculateRouteSpeed(route, fastSettings).averageSpeedMps).toBeLessThanOrEqual(40 / 3.6);
+});
+
+test("estimates segment speed from segment bounds", () => {
+  const points = [
+    point(0, 100),
+    point(1000, 100),
+    point(2000, 200),
+  ];
+  const segments = buildSegments(points, [1]);
+
+  const first = calculateSegmentSpeed(points, segments[0]!, DEFAULT_SPEED_MODEL_SETTINGS);
+  const second = calculateSegmentSpeed(points, segments[1]!, DEFAULT_SPEED_MODEL_SETTINGS);
+
+  expect(first.movingTimeSeconds).toBeGreaterThan(0);
+  expect(second.movingTimeSeconds).toBeGreaterThan(first.movingTimeSeconds);
+});
+
+test("excludes skipped track segment gaps from average speed", () => {
+  const oneKilometer = [
+    point(0, 100, 0),
+    point(1000, 100, 0),
+  ];
+  const withGap = [
+    point(0, 100, 0),
+    point(1000, 100, 0),
+    point(101000, 100, 1),
+    point(102000, 100, 1),
+  ];
+
+  const one = calculateRouteSpeed(oneKilometer, DEFAULT_SPEED_MODEL_SETTINGS);
+  const gapped = calculateRouteSpeed(withGap, DEFAULT_SPEED_MODEL_SETTINGS);
+
+  expect(gapped.averageSpeedMps).toBeCloseTo(one.averageSpeedMps, 5);
+  expect(gapped.movingTimeSeconds).toBeCloseTo(one.movingTimeSeconds * 2, 5);
+});
+
+test("excludes skipped track segment gaps from segment speed", () => {
+  const points = [
+    point(0, 100, 0),
+    point(1000, 100, 0),
+    point(101000, 100, 1),
+    point(102000, 100, 1),
+  ];
+
+  const full = calculateSegmentSpeed(points, { start: 0, end: 3 }, DEFAULT_SPEED_MODEL_SETTINGS);
+  const first = calculateSegmentSpeed(points, { start: 0, end: 1 }, DEFAULT_SPEED_MODEL_SETTINGS);
+
+  expect(full.averageSpeedMps).toBeCloseTo(first.averageSpeedMps, 5);
+  expect(full.movingTimeSeconds).toBeCloseTo(first.movingTimeSeconds * 2, 5);
+});
+
+test("formats speed and moving time", () => {
+  expect(formatSpeed(10)).toBe("36.0 km/h");
+  expect(formatSpeed(0)).toBe("—");
+  expect(formatMovingTime(59)).toBe("1m");
+  expect(formatMovingTime(3660)).toBe("1h 01m");
 });
 
 test("parses GPX waypoints", () => {
