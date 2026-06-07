@@ -359,20 +359,17 @@ export function App() {
           </div>
 
           <aside className="flex min-h-0 flex-col bg-background">
-            <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-              <div>
-                <SectionTitle title="Segments" help="Segments are the route parts between split points. Click a segment to highlight it on the map and profile." />
-                <div className="mt-0.5 text-[11px] text-muted-foreground">Created between your split points. {route.waypoints.length} waypoint{route.waypoints.length === 1 ? "" : "s"} found.</div>
-              </div>
-              <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
-            </div>
-
             <SpeedSettingsPanel
               enabled={speedModelEnabled}
               settings={speedSettings}
               onEnabledChange={setSpeedModelEnabled}
               onSettingsChange={setSpeedSettings}
             />
+
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
+              <SectionTitle title="Segments" help="Click a segment to highlight it on the map and profile." />
+              <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
+            </div>
 
             <div className="flex flex-col gap-2 border-b px-4 py-3">
               <HelpTooltip content={splits.length === 0 ? "Download the unchanged route as one GPX file." : "Download one GPX file for each segment."}>
@@ -718,7 +715,10 @@ function HelpTooltip({ content, children }: { content: string; children: ReactNo
 function SectionTitle({ title, help }: { title: string; help: string }) {
   return (
     <div className="flex items-center gap-1.5">
-      <div className="text-xs font-semibold uppercase tracking-wide">{title}</div>
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-foreground">
+        <span className="h-3 w-1 rounded-full bg-primary" aria-hidden="true" />
+        {title}
+      </div>
       <HelpIconButton label={title} help={help} />
     </div>
   );
