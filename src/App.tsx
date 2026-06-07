@@ -307,6 +307,7 @@ export function App() {
                   segments={segments}
                   splits={splits}
                   hoverIndex={hoverIndex}
+                  showWaypoints={showWaypoints}
                   activeSegment={activeSegment}
                   focusRange={mapDistanceRange}
                   onHover={setHoverIndexIfChanged}
@@ -787,6 +788,7 @@ function ElevationProfile({
   segments,
   splits,
   hoverIndex,
+  showWaypoints,
   activeSegment,
   focusRange,
   onHover,
@@ -796,6 +798,7 @@ function ElevationProfile({
   segments: Segment[];
   splits: number[];
   hoverIndex: number | null;
+  showWaypoints: boolean;
   activeSegment: Segment | null;
   focusRange: DistanceRange | null;
   onHover: (index: number | null) => void;
@@ -885,6 +888,21 @@ function ElevationProfile({
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
   const hoverSlopeLabel = getSlopeLabel(hoverSlope?.slope ?? 0);
   const hoverSlopeName = getSlopeName(hoverSlope?.slope ?? 0);
+  const visibleWaypoints = useMemo(() => {
+    if (!route || !showWaypoints) return [];
+    return route.waypoints
+      .map(waypoint => {
+        const point = points[waypoint.nearestPointIndex];
+        if (!point || point.distance < profileRange.start || point.distance > profileRange.end) return null;
+        return {
+          key: waypoint.index,
+          label: waypoint.name || `W${waypoint.index + 1}`,
+          distance: point.distance,
+          ele: waypoint.ele ?? point.ele,
+        };
+      })
+      .filter(item => item !== null);
+  }, [points, profileRange, route, showWaypoints]);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
   const hoverLabelWidth = 220;
@@ -900,6 +918,33 @@ function ElevationProfile({
   const trackSectionY = hoverLabelY + 8;
   const segmentSectionY = trackSectionY + hoverSectionHeight + hoverSectionGap;
   const slopeSectionY = hoverSegment ? segmentSectionY + hoverSectionHeight + hoverSectionGap : segmentSectionY;
+  const laidOutWaypoints = useMemo(() => {
+    const boxes: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+
+    return visibleWaypoints.map(waypoint => {
+      const waypointX = x(waypoint.distance);
+      const waypointY = y(waypoint.ele);
+      const labelWidth = Math.min(160, Math.max(28, waypoint.label.length * 6.2));
+      const labelHeight = 12;
+      const baseLabelX = Math.min(plotRight - labelWidth, Math.max(padLeft + 4, waypointX + 8));
+
+      for (let row = 0; row < 4; row++) {
+        const labelY = Math.max(padTop + labelHeight, waypointY - 10 - row * 14);
+        const box = {
+          left: baseLabelX - 2,
+          right: baseLabelX + labelWidth + 2,
+          top: labelY - labelHeight,
+          bottom: labelY + 2,
+        };
+        if (!boxes.some(existing => boxesOverlap(existing, box))) {
+          boxes.push(box);
+          return { ...waypoint, waypointX, waypointY, labelX: baseLabelX, labelY, showLabel: true };
+        }
+      }
+
+      return { ...waypoint, waypointX, waypointY, labelX: baseLabelX, labelY: waypointY - 10, showLabel: false };
+    });
+  }, [padLeft, padTop, plotRight, visibleWaypoints, x, y]);
   function indexFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
     if (!route) return null;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -972,6 +1017,27 @@ function ElevationProfile({
           vectorEffect="non-scaling-stroke"
         />
       )}
+      {laidOutWaypoints.map(waypoint => {
+        return (
+          <g key={waypoint.key} className="pointer-events-none">
+            <title>{waypoint.label}</title>
+            <line x1={waypoint.waypointX} x2={waypoint.waypointX} y1={waypoint.waypointY} y2={plotBottom} className="stroke-accent" strokeDasharray="2 3" strokeWidth="1" opacity="0.7" vectorEffect="non-scaling-stroke" />
+            <circle cx={waypoint.waypointX} cy={waypoint.waypointY} r="5" className="fill-accent stroke-background" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            {waypoint.showLabel && (
+              <text
+                x={waypoint.labelX}
+                y={waypoint.labelY}
+                className="fill-primary stroke-background font-mono text-[10px] font-bold"
+                strokeWidth="3"
+                paintOrder="stroke fill"
+                vectorEffect="non-scaling-stroke"
+              >
+                {waypoint.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
       {splits
         .map((index, splitPosition) => {
           if (points[index]!.distance < profileRange.start || points[index]!.distance > profileRange.end) return null;
@@ -1179,6 +1245,13 @@ function formatSlope(slope: number) {
 
 function formatPercent(value: number) {
   return `${Math.round(value)}%`;
+}
+
+function boxesOverlap(
+  first: { left: number; right: number; top: number; bottom: number },
+  second: { left: number; right: number; top: number; bottom: number },
+) {
+  return first.left < second.right && first.right > second.left && first.top < second.bottom && first.bottom > second.top;
 }
 
 function SegmentRow({
