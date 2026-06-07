@@ -1,3 +1,6 @@
+import { DEFAULT_SPEED_MODEL_SETTINGS, sanitizeSpeedSettings, type SpeedModelSettings } from "./gpx";
+export { sanitizeSpeedSettings } from "./gpx";
+
 export type SavedRouteState = {
   version: 1;
   gpxText: string;
@@ -5,6 +8,12 @@ export type SavedRouteState = {
   splits: number[];
   activeSegmentId: number | null;
   showWaypoints: boolean;
+};
+
+export type SavedSpeedSettingsState = {
+  version: 1;
+  enabled: boolean;
+  settings: SpeedModelSettings;
 };
 
 type RoutePersistenceRecord = {
@@ -16,6 +25,12 @@ type RoutePersistenceRecord = {
   showWaypoints?: boolean;
 };
 
+type SpeedSettingsPersistenceRecord = {
+  version: number;
+  enabled: boolean;
+  settings: Partial<SpeedModelSettings>;
+};
+
 type StoredRouteState = RoutePersistenceRecord & {
   key: typeof ROUTE_STATE_KEY;
 };
@@ -23,6 +38,7 @@ type StoredRouteState = RoutePersistenceRecord & {
 const DB_NAME = "gpxer";
 const STORE_NAME = "route-state";
 const ROUTE_STATE_KEY = "last-route";
+const SPEED_SETTINGS_KEY = "gpxer:speed-settings";
 const SCHEMA_VERSION = 1;
 
 export function isSavedRouteState(value: unknown): value is SavedRouteState {
@@ -40,6 +56,17 @@ export function isSavedRouteState(value: unknown): value is SavedRouteState {
     && (record.showWaypoints === undefined || typeof record.showWaypoints === "boolean");
 }
 
+export function isSavedSpeedSettingsState(value: unknown): value is SavedSpeedSettingsState {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<SpeedSettingsPersistenceRecord>;
+  if (record.version !== SCHEMA_VERSION || typeof record.enabled !== "boolean" || !record.settings || typeof record.settings !== "object") return false;
+
+  return isFiniteNumber(record.settings.powerWatts)
+    && isFiniteNumber(record.settings.massKg)
+    && isFiniteNumber(record.settings.cda)
+    && isFiniteNumber(record.settings.crr);
+}
+
 export function sanitizeSplits(splits: number[], pointCount: number) {
   return [...new Set(splits)]
     .filter(split => split > 0 && split < pointCount - 1)
@@ -50,6 +77,48 @@ export function sanitizeActiveSegmentId(activeSegmentId: number | null, segmentC
   if (segmentCount <= 0) return null;
   if (activeSegmentId === null || activeSegmentId < 1 || activeSegmentId > segmentCount) return 1;
   return activeSegmentId;
+}
+
+export function loadSavedSpeedSettingsState() {
+  const storage = getLocalStorage();
+  if (!storage) return null;
+
+  try {
+    const raw = storage.getItem(SPEED_SETTINGS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isSavedSpeedSettingsState(parsed)) {
+      storage.removeItem(SPEED_SETTINGS_KEY);
+      return null;
+    }
+
+    return {
+      version: SCHEMA_VERSION,
+      enabled: parsed.enabled,
+      settings: sanitizeSpeedSettings({
+        ...DEFAULT_SPEED_MODEL_SETTINGS,
+        ...parsed.settings,
+      }),
+    } satisfies SavedSpeedSettingsState;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSpeedSettingsState(state: SavedSpeedSettingsState) {
+  const storage = getLocalStorage();
+  if (!storage) return false;
+
+  try {
+    storage.setItem(SPEED_SETTINGS_KEY, JSON.stringify({
+      version: SCHEMA_VERSION,
+      enabled: state.enabled,
+      settings: sanitizeSpeedSettings(state.settings),
+    }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function loadSavedRouteState() {
@@ -76,6 +145,19 @@ export async function loadSavedRouteState() {
   } finally {
     db.close();
   }
+}
+
+function getLocalStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 export async function saveRouteState(state: SavedRouteState) {

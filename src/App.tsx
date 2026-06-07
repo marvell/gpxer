@@ -37,9 +37,12 @@ import {
 import {
   clearSavedRouteState,
   loadSavedRouteState,
+  loadSavedSpeedSettingsState,
   sanitizeActiveSegmentId,
   sanitizeSplits,
   saveRouteState,
+  saveSpeedSettingsState,
+  type SavedSpeedSettingsState,
 } from "@/lib/persistence";
 import { clamp } from "@/lib/utils";
 import { Download, Eye, EyeOff, Route, Trash2, Upload, X } from "lucide-react";
@@ -47,6 +50,12 @@ import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibr
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
+
+const DEFAULT_SPEED_PREFERENCES: SavedSpeedSettingsState = {
+  version: 1,
+  enabled: false,
+  settings: DEFAULT_SPEED_MODEL_SETTINGS,
+};
 
 export function App() {
   const posthogClient: ReturnType<typeof usePostHog> = usePostHog();
@@ -59,12 +68,14 @@ export function App() {
   const [activeWaypointIndex, setActiveWaypointIndex] = useState<number | null>(null);
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
-  const [speedModelEnabled, setSpeedModelEnabled] = useState(false);
-  const [speedSettings, setSpeedSettings] = useState<SpeedModelSettings>(DEFAULT_SPEED_MODEL_SETTINGS);
+  const [speedPreferences, setSpeedPreferences] = useState<SavedSpeedSettingsState>(() => loadSavedSpeedSettingsState() ?? DEFAULT_SPEED_PREFERENCES);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationAction | null>(null);
   const hoverIndexRef = useRef<number | null>(null);
   const mapDistanceRangeRef = useRef<DistanceRange | null>(null);
+  const savedSpeedPreferencesRef = useRef(JSON.stringify(speedPreferences));
+  const speedModelEnabled = speedPreferences.enabled;
+  const speedSettings = speedPreferences.settings;
   const segments = useMemo(() => (route ? buildSegments(route.points, splits) : []), [route, splits]);
   const routeSpeed = useMemo(() => (route && speedModelEnabled ? calculateRouteSpeed(route.points, speedSettings) : null), [route, speedModelEnabled, speedSettings]);
   const segmentSpeeds = useMemo(
@@ -134,6 +145,13 @@ export function App() {
       showWaypoints,
     });
   }, [activeSegmentId, persistenceReady, route, segments.length, showWaypoints, sourceGpxText, splits]);
+
+  useEffect(() => {
+    const serialized = JSON.stringify(speedPreferences);
+    if (savedSpeedPreferencesRef.current === serialized) return;
+    savedSpeedPreferencesRef.current = serialized;
+    saveSpeedSettingsState(speedPreferences);
+  }, [speedPreferences]);
 
   useEffect(() => {
     if (!route || activeWaypointIndex === null) return;
@@ -364,8 +382,8 @@ export function App() {
             <SpeedSettingsPanel
               enabled={speedModelEnabled}
               settings={speedSettings}
-              onEnabledChange={setSpeedModelEnabled}
-              onSettingsChange={setSpeedSettings}
+              onEnabledChange={enabled => setSpeedPreferences(current => current.enabled === enabled ? current : { ...current, enabled })}
+              onSettingsChange={settings => setSpeedPreferences(current => current.settings === settings ? current : { ...current, settings })}
             />
 
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">

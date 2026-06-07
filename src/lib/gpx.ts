@@ -494,7 +494,7 @@ function parseWaypoints(document: Document, points: RoutePoint[]): Waypoint[] {
   return waypoints;
 }
 
-function sanitizeSpeedSettings(settings: SpeedModelSettings): SpeedModelSettings {
+export function sanitizeSpeedSettings(settings: SpeedModelSettings): SpeedModelSettings {
   return {
     powerWatts: clamp(settings.powerWatts, SPEED_MODEL_LIMITS.powerWatts.min, SPEED_MODEL_LIMITS.powerWatts.max),
     massKg: clamp(settings.massKg, SPEED_MODEL_LIMITS.massKg.min, SPEED_MODEL_LIMITS.massKg.max),
