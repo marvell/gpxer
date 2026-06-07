@@ -23,6 +23,7 @@ test("saves and loads a valid route state", async () => {
     fileName: "route.gpx",
     splits: [3, 8],
     activeSegmentId: 2,
+    showWaypoints: false,
   };
 
   expect(await saveRouteState(state)).toBe(true);
@@ -30,10 +31,12 @@ test("saves and loads a valid route state", async () => {
 });
 
 test("rejects unsupported or corrupt route state", () => {
-  expect(isSavedRouteState({ version: 2, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: null })).toBe(false);
-  expect(isSavedRouteState({ version: 1, gpxText: "", fileName: "route.gpx", splits: [], activeSegmentId: null })).toBe(false);
-  expect(isSavedRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [1.5], activeSegmentId: null })).toBe(false);
-  expect(isSavedRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: "2" })).toBe(false);
+  expect(isSavedRouteState({ version: 2, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: null, showWaypoints: true })).toBe(false);
+  expect(isSavedRouteState({ version: 1, gpxText: "", fileName: "route.gpx", splits: [], activeSegmentId: null, showWaypoints: true })).toBe(false);
+  expect(isSavedRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [1.5], activeSegmentId: null, showWaypoints: true })).toBe(false);
+  expect(isSavedRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: "2", showWaypoints: true })).toBe(false);
+  expect(isSavedRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: null, showWaypoints: "yes" })).toBe(false);
+  expect(isSavedRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: null })).toBe(true);
 });
 
 test("clears corrupt route state on load", async () => {
@@ -56,7 +59,7 @@ test("handles unavailable IndexedDB without crashing", async () => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
 
   expect(await loadSavedRouteState()).toBeNull();
-  expect(await saveRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: null })).toBe(false);
+  expect(await saveRouteState({ version: 1, gpxText: "<gpx></gpx>", fileName: "route.gpx", splits: [], activeSegmentId: null, showWaypoints: true })).toBe(false);
   expect(await clearSavedRouteState()).toBe(false);
 });
 

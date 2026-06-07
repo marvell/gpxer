@@ -19,6 +19,7 @@ import {
   SLOPE_CLASSES,
   type RouteData,
   type Segment,
+  type Waypoint,
 } from "@/lib/gpx";
 import {
   clearSavedRouteState,
@@ -27,7 +28,7 @@ import {
   sanitizeSplits,
   saveRouteState,
 } from "@/lib/persistence";
-import { Download, Eye, EyeOff, Route, Trash2, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, MapPin, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -41,6 +42,7 @@ export function App() {
   const [splits, setSplits] = useState<number[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [showWaypoints, setShowWaypoints] = useState(true);
+  const [activeWaypointIndex, setActiveWaypointIndex] = useState<number | null>(null);
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
@@ -83,6 +85,7 @@ export function App() {
           setSourceGpxText(saved.gpxText);
           setRoute(parsed);
           setSplits(restoredSplits);
+          setShowWaypoints(saved.showWaypoints);
           setActiveSegmentId(sanitizeActiveSegmentId(saved.activeSegmentId, restoredSegments.length));
           setError(null);
         } catch {
@@ -107,8 +110,14 @@ export function App() {
       fileName: route.fileName,
       splits: sanitizeSplits(splits, route.points.length),
       activeSegmentId: sanitizeActiveSegmentId(activeSegmentId, segments.length),
+      showWaypoints,
     });
-  }, [activeSegmentId, persistenceReady, route, segments.length, sourceGpxText, splits]);
+  }, [activeSegmentId, persistenceReady, route, segments.length, showWaypoints, sourceGpxText, splits]);
+
+  useEffect(() => {
+    if (!route || activeWaypointIndex === null) return;
+    if (!route.waypoints.some(waypoint => waypoint.index === activeWaypointIndex)) setActiveWaypointIndex(null);
+  }, [activeWaypointIndex, route]);
 
   async function onUpload(file: File | undefined, source: GpxUploadSource) {
     if (!file) return;
@@ -121,6 +130,7 @@ export function App() {
       setRoute(parsed);
       setSplits([]);
       setShowWaypoints(true);
+      setActiveWaypointIndex(null);
       setHoverIndexIfChanged(null);
       setMapDistanceRangeIfChanged(null);
       setActiveSegmentId(1);
@@ -141,6 +151,7 @@ export function App() {
     setSourceGpxText(null);
     setSplits([]);
     setShowWaypoints(true);
+    setActiveWaypointIndex(null);
     setHoverIndexIfChanged(null);
     setMapDistanceRangeIfChanged(null);
     setActiveSegmentId(null);
@@ -268,9 +279,11 @@ export function App() {
                 splits={splits}
                 hoverIndex={hoverIndex}
                 showWaypoints={showWaypoints}
+                activeWaypointIndex={activeWaypointIndex}
                 activeSegment={activeSegment}
                 onHover={setHoverIndexIfChanged}
                 onToggleSplit={toggleSplit}
+                onSelectWaypoint={setActiveWaypointIndex}
                 onVisibleRange={setMapDistanceRangeIfChanged}
               />
               <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-1.5 text-[11px]">
@@ -279,15 +292,16 @@ export function App() {
               </div>
               {route.waypoints.length > 0 && (
                 <div className="absolute left-3 top-3">
-                  <HelpTooltip content={showWaypoints ? "Hide waypoints on the map." : "Show waypoints on the map."}>
+                  <HelpTooltip content={showWaypoints ? "Hide waypoint markers on the map and elevation profile." : "Show waypoint markers on the map and elevation profile."}>
                     <Button
                       size="sm"
                       variant="outline"
                       className="bg-background/90 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur hover:text-foreground"
                       onClick={() => setShowWaypoints(current => !current)}
+                      aria-pressed={showWaypoints}
                     >
                       {showWaypoints ? <EyeOff /> : <Eye />}
-                      {showWaypoints ? "Hide waypoints" : "Show waypoints"}
+                      {showWaypoints ? "Hide markers" : "Show markers"}
                     </Button>
                   </HelpTooltip>
                 </div>
@@ -308,10 +322,12 @@ export function App() {
                   splits={splits}
                   hoverIndex={hoverIndex}
                   showWaypoints={showWaypoints}
+                  activeWaypointIndex={activeWaypointIndex}
                   activeSegment={activeSegment}
                   focusRange={mapDistanceRange}
                   onHover={setHoverIndexIfChanged}
                   onToggleSplit={toggleSplit}
+                  onSelectWaypoint={setActiveWaypointIndex}
                 />
               </div>
             </div>
@@ -321,10 +337,18 @@ export function App() {
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
               <div>
                 <SectionTitle title="Segments" help="Segments are the route parts between split points. Click a segment to highlight it on the map and profile." />
-                <div className="mt-0.5 text-[11px] text-muted-foreground">Created between your split points.</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">Created between your split points. {route.waypoints.length} waypoint{route.waypoints.length === 1 ? "" : "s"} found.</div>
               </div>
               <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
             </div>
+
+            <WaypointPanel
+              route={route}
+              activeWaypointIndex={activeWaypointIndex}
+              showWaypoints={showWaypoints}
+              onSelectWaypoint={setActiveWaypointIndex}
+              onToggleWaypoints={() => setShowWaypoints(current => !current)}
+            />
 
             <div className="flex flex-col gap-2 border-b px-4 py-3">
               <HelpTooltip content={splits.length === 0 ? "Download the unchanged route as one GPX file." : "Download one GPX file for each segment."}>
@@ -515,6 +539,91 @@ function SlopeLegend() {
   );
 }
 
+function WaypointPanel({
+  route,
+  activeWaypointIndex,
+  showWaypoints,
+  onSelectWaypoint,
+  onToggleWaypoints,
+}: {
+  route: RouteData;
+  activeWaypointIndex: number | null;
+  showWaypoints: boolean;
+  onSelectWaypoint: (index: number | null) => void;
+  onToggleWaypoints: () => void;
+}) {
+  const activeWaypoint = route.waypoints.find(waypoint => waypoint.index === activeWaypointIndex) ?? route.waypoints[0] ?? null;
+  const activePoint = activeWaypoint ? route.points[activeWaypoint.nearestPointIndex] : null;
+
+  return (
+    <section className="border-b px-4 py-3" aria-label="Waypoints">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <MapPin className="size-4 text-accent" />
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide">Waypoints</div>
+            <div className="text-[11px] text-muted-foreground">
+              {route.waypoints.length === 0 ? "No waypoints in this GPX file." : `${route.waypoints.length} marker${route.waypoints.length === 1 ? "" : "s"} from the GPX file.`}
+            </div>
+          </div>
+        </div>
+        {route.waypoints.length > 0 && (
+          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={onToggleWaypoints} aria-pressed={showWaypoints}>
+            {showWaypoints ? <EyeOff /> : <Eye />}
+            {showWaypoints ? "Hide" : "Show"}
+          </Button>
+        )}
+      </div>
+
+      {route.waypoints.length === 0 ? (
+        <div className="mt-2 rounded-[2px] border bg-muted/35 p-2 text-xs text-muted-foreground">Upload a GPX with waypoint tags to show marker details here.</div>
+      ) : (
+        <div className="mt-2 grid gap-2">
+          {activeWaypoint && activePoint && (
+            <div className="rounded-[2px] border bg-muted/35 p-2">
+              <div className="truncate text-sm font-semibold">{waypointName(activeWaypoint)}</div>
+              <div className="mt-1 grid grid-cols-2 gap-1.5 text-[11px]">
+                <WaypointDetail label="Distance" value={formatDistance(activePoint.distance)} />
+                <WaypointDetail label="Elevation" value={formatElevation(activeWaypoint.ele ?? activePoint.ele)} />
+                <WaypointDetail label="Time" value={formatWaypointTime(activeWaypoint.time)} wide />
+              </div>
+              {activeWaypoint.desc && <p className="mt-2 line-clamp-3 text-xs leading-snug text-muted-foreground">{activeWaypoint.desc}</p>}
+            </div>
+          )}
+
+          <div className="flex max-h-28 flex-col gap-1 overflow-auto" aria-label="Waypoint list">
+            {route.waypoints.map(waypoint => {
+              const point = route.points[waypoint.nearestPointIndex];
+              const active = waypoint.index === activeWaypointIndex || (activeWaypointIndex === null && waypoint === activeWaypoint);
+              return (
+                <button
+                  key={waypoint.index}
+                  type="button"
+                  className={`flex items-center justify-between gap-2 rounded-[2px] border px-2 py-1.5 text-left text-xs ${active ? "border-primary bg-background" : "border-border bg-background/70 hover:bg-muted/60"}`}
+                  onClick={() => onSelectWaypoint(waypoint.index)}
+                  aria-pressed={active}
+                >
+                  <span className="min-w-0 truncate font-medium">{waypointName(waypoint)}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{point ? formatDistance(point.distance) : "—"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WaypointDetail({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`rounded-[2px] border bg-background px-2 py-1 ${wide ? "col-span-2" : ""}`}>
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate font-mono font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
 function Dropzone({ onFile }: { onFile: (file: File | undefined, source: GpxUploadSource) => void }) {
   const [drag, setDrag] = useState(false);
   return (
@@ -560,26 +669,32 @@ function RouteMap({
   splits,
   hoverIndex,
   showWaypoints,
+  activeWaypointIndex,
   activeSegment,
   onHover,
   onToggleSplit,
+  onSelectWaypoint,
   onVisibleRange,
 }: {
   route: RouteData | null;
   splits: number[];
   hoverIndex: number | null;
   showWaypoints: boolean;
+  activeWaypointIndex: number | null;
   activeSegment: Segment | null;
   onHover: (index: number | null) => void;
   onToggleSplit: (index: number) => void;
+  onSelectWaypoint: (index: number | null) => void;
   onVisibleRange: (range: DistanceRange | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const waypointPopupRef = useRef<maplibregl.Popup | null>(null);
   const rafRef = useRef<number | null>(null);
   const routeRef = useRef<RouteData | null>(null);
   const onHoverRef = useRef(onHover);
   const onToggleSplitRef = useRef(onToggleSplit);
+  const onSelectWaypointRef = useRef(onSelectWaypoint);
   const onVisibleRangeRef = useRef(onVisibleRange);
   const routeLineData = useMemo(() => (route ? lineData(route) : null), [route]);
   const activeSegmentLineData = useMemo(
@@ -587,7 +702,7 @@ function RouteMap({
     [route, activeSegment],
   );
   const splitPointData = useMemo(() => (route ? splitPointDataForRoute(route, splits) : emptyPoints().data), [route, splits]);
-  const waypointPointData = useMemo(() => (route && showWaypoints ? waypointData(route) : emptyPoints().data), [route, showWaypoints]);
+  const waypointPointData = useMemo(() => (route && showWaypoints ? waypointData(route, activeWaypointIndex) : emptyPoints().data), [activeWaypointIndex, route, showWaypoints]);
   const hoverPointData = useMemo(
     () => (route ? pointData(route, hoverIndex === null ? [] : [hoverIndex]) : emptyPoints().data),
     [route, hoverIndex],
@@ -596,6 +711,7 @@ function RouteMap({
   routeRef.current = route;
   onHoverRef.current = onHover;
   onToggleSplitRef.current = onToggleSplit;
+  onSelectWaypointRef.current = onSelectWaypoint;
   onVisibleRangeRef.current = onVisibleRange;
 
   useEffect(() => {
@@ -640,7 +756,12 @@ function RouteMap({
         id: "waypoint-points",
         type: "circle",
         source: "waypoints",
-        paint: { "circle-radius": 5, "circle-color": waypointColor, "circle-stroke-width": 2, "circle-stroke-color": backgroundColor },
+        paint: {
+          "circle-radius": ["case", ["boolean", ["get", "selected"], false], 7, 5],
+          "circle-color": waypointColor,
+          "circle-stroke-width": ["case", ["boolean", ["get", "selected"], false], 3, 2],
+          "circle-stroke-color": backgroundColor,
+        },
       });
       map.addLayer({
         id: "waypoint-labels",
@@ -686,6 +807,11 @@ function RouteMap({
       const click = (event: maplibregl.MapMouseEvent) => {
         const activeRoute = routeRef.current;
         if (!activeRoute) return;
+        const waypointIndex = waypointIndexAtPoint(map, event.point);
+        if (waypointIndex !== null) {
+          onSelectWaypointRef.current(waypointIndex);
+          return;
+        }
         const markerIndex = markerIndexAtPoint(map, event.point);
         if (markerIndex !== null) {
           onToggleSplitRef.current(markerIndex);
@@ -713,15 +839,21 @@ function RouteMap({
       map.on("click", click);
       map.on("moveend", reportVisibleRange);
       map.on("mouseenter", "route-hit", crosshair);
+      map.on("mouseenter", "waypoint-points", pointer);
+      map.on("mouseenter", "waypoint-labels", pointer);
       map.on("mouseenter", "split-points", pointer);
       map.on("mouseenter", "hover-point", crosshair);
       map.on("mouseleave", "route-hit", leave);
       map.on("mouseleave", "route-hit", resetPointer);
+      map.on("mouseleave", "waypoint-points", resetPointer);
+      map.on("mouseleave", "waypoint-labels", resetPointer);
       map.on("mouseleave", "split-points", resetPointer);
       map.on("mouseleave", "hover-point", resetPointer);
     });
     mapRef.current = map;
     return () => {
+      waypointPopupRef.current?.remove();
+      waypointPopupRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -761,6 +893,26 @@ function RouteMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    const existingPopup = waypointPopupRef.current;
+    waypointPopupRef.current = null;
+    existingPopup?.remove();
+    if (!map || !route || !showWaypoints || activeWaypointIndex === null) return;
+
+    const waypoint = route.waypoints.find(item => item.index === activeWaypointIndex);
+    if (!waypoint) return;
+
+    const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, offset: 14 })
+      .setLngLat([waypoint.lon, waypoint.lat])
+      .setDOMContent(waypointPopupElement(route, waypoint))
+      .addTo(map);
+    popup.on("close", () => {
+      if (waypointPopupRef.current === popup) onSelectWaypointRef.current(null);
+    });
+    waypointPopupRef.current = popup;
+  }, [activeWaypointIndex, route, showWaypoints]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !route) return;
     const update = () => {
       (map.getSource("splits") as GeoJSONSource | undefined)?.setData(splitPointData);
@@ -789,20 +941,24 @@ function ElevationProfile({
   splits,
   hoverIndex,
   showWaypoints,
+  activeWaypointIndex,
   activeSegment,
   focusRange,
   onHover,
   onToggleSplit,
+  onSelectWaypoint,
 }: {
   route: RouteData | null;
   segments: Segment[];
   splits: number[];
   hoverIndex: number | null;
   showWaypoints: boolean;
+  activeWaypointIndex: number | null;
   activeSegment: Segment | null;
   focusRange: DistanceRange | null;
   onHover: (index: number | null) => void;
   onToggleSplit: (index: number) => void;
+  onSelectWaypoint: (index: number | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const climbCacheRef = useRef<{ points: RouteData["points"]; values: Map<string, number> }>({ points: [], values: new Map() });
@@ -896,7 +1052,9 @@ function ElevationProfile({
         if (!point || point.distance < profileRange.start || point.distance > profileRange.end) return null;
         return {
           key: waypoint.index,
-          label: waypoint.name || `W${waypoint.index + 1}`,
+          label: shortWaypointLabel(waypointName(waypoint)),
+          fullLabel: waypointName(waypoint),
+          waypoint,
           distance: point.distance,
           ele: waypoint.ele ?? point.ele,
         };
@@ -938,36 +1096,84 @@ function ElevationProfile({
         };
         if (!boxes.some(existing => boxesOverlap(existing, box))) {
           boxes.push(box);
-          return { ...waypoint, waypointX, waypointY, labelX: baseLabelX, labelY, showLabel: true };
+          return { ...waypoint, waypointX, waypointY, labelX: baseLabelX, labelY, labelWidth, showLabel: true };
         }
       }
 
-      return { ...waypoint, waypointX, waypointY, labelX: baseLabelX, labelY: waypointY - 10, showLabel: false };
+      return { ...waypoint, waypointX, waypointY, labelX: baseLabelX, labelY: waypointY - 10, labelWidth, showLabel: false };
     });
   }, [padLeft, padTop, plotRight, visibleWaypoints, x, y]);
+  function svgPointFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * width,
+      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * height,
+    };
+  }
+
   function indexFromEvent(event: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>) {
     if (!route) return null;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const svgX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * width;
+    const { x: svgX } = svgPointFromEvent(event);
     const plotX = Math.max(padLeft, Math.min(plotRight, svgX));
     const ratio = (plotX - padLeft) / plotWidth;
     const distance = profileRange.start + ratio * (profileRange.end - profileRange.start);
     return nearestPoint(route.points, distance / 1000);
   }
 
+  function waypointIndexFromEvent(event: React.MouseEvent<SVGSVGElement>) {
+    const point = svgPointFromEvent(event);
+    for (const waypoint of laidOutWaypoints) {
+      const markerHit = (point.x - waypoint.waypointX) ** 2 + (point.y - waypoint.waypointY) ** 2 <= 12 ** 2;
+      const waypointBandHit = Math.abs(point.x - waypoint.waypointX) <= 18 && point.y >= padTop && point.y <= plotBottom + 18;
+      const labelHit = waypoint.showLabel &&
+        point.x >= waypoint.labelX - 4 &&
+        point.x <= waypoint.labelX + waypoint.labelWidth + 4 &&
+        point.y >= waypoint.labelY - 14 &&
+        point.y <= waypoint.labelY + 5;
+      if (markerHit || waypointBandHit || labelHit) return waypoint.key;
+    }
+    return null;
+  }
+
+  function focusIndex(step: number) {
+    if (!route) return;
+    const current = hoverIndex ?? 0;
+    onHover(Math.max(0, Math.min(route.points.length - 1, current + step)));
+  }
+
   return (
-    <div ref={containerRef} className="h-full w-full min-w-0 overflow-hidden">
+    <div ref={containerRef} className="relative h-full w-full min-w-0 overflow-hidden">
     <svg
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="xMidYMid meet"
       className="block h-full w-full touch-none cursor-crosshair"
+      role="application"
+      tabIndex={0}
+      aria-label="Elevation profile. Use left and right arrows to inspect points, Enter to add or remove a split, and Tab to reach waypoint markers."
       onPointerMove={event => onHover(indexFromEvent(event))}
       onPointerLeave={() => onHover(null)}
       onClick={event => {
+        const waypointIndex = waypointIndexFromEvent(event);
+        if (waypointIndex !== null) {
+          onSelectWaypoint(waypointIndex);
+          return;
+        }
         const index = indexFromEvent(event);
         if (index !== null) onToggleSplit(index);
+      }}
+      onKeyDown={event => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          focusIndex(event.shiftKey ? -10 : -1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          focusIndex(event.shiftKey ? 10 : 1);
+        } else if ((event.key === "Enter" || event.key === " ") && hoverIndex !== null) {
+          event.preventDefault();
+          onToggleSplit(hoverIndex);
+        }
       }}
     >
       <defs>
@@ -1018,11 +1224,12 @@ function ElevationProfile({
         />
       )}
       {laidOutWaypoints.map(waypoint => {
+        const active = waypoint.key === activeWaypointIndex;
         return (
           <g key={waypoint.key} className="pointer-events-none">
-            <title>{waypoint.label}</title>
+            <title>{waypoint.fullLabel}</title>
             <line x1={waypoint.waypointX} x2={waypoint.waypointX} y1={waypoint.waypointY} y2={plotBottom} className="stroke-accent" strokeDasharray="2 3" strokeWidth="1" opacity="0.7" vectorEffect="non-scaling-stroke" />
-            <circle cx={waypoint.waypointX} cy={waypoint.waypointY} r="5" className="fill-accent stroke-background" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            <circle cx={waypoint.waypointX} cy={waypoint.waypointY} r={active ? "7" : "5"} className="fill-accent stroke-background" strokeWidth={active ? "3" : "2"} vectorEffect="non-scaling-stroke" />
             {waypoint.showLabel && (
               <text
                 x={waypoint.labelX}
@@ -1123,6 +1330,18 @@ function ElevationProfile({
       <text x={padLeft + plotWidth / 2} y={height - 7} textAnchor="middle" className="fill-muted-foreground font-mono text-[10px]">{formatDistance((profileRange.start + profileRange.end) / 2)}</text>
       <text x={plotRight} y={height - 7} textAnchor="end" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.end)}</text>
     </svg>
+    {laidOutWaypoints.map(waypoint => (
+      <button
+        key={waypoint.key}
+        type="button"
+        className="absolute z-10 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border border-transparent bg-transparent outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+        style={{ left: `${(waypoint.waypointX / width) * 100}%`, top: `${(waypoint.waypointY / height) * 100}%` }}
+        onClick={() => onSelectWaypoint(waypoint.key)}
+        aria-label={`Show waypoint details for ${waypoint.fullLabel}`}
+        aria-pressed={waypoint.key === activeWaypointIndex}
+        title={waypoint.fullLabel}
+      />
+    ))}
     </div>
   );
 }
@@ -1479,12 +1698,63 @@ function splitPointDataForRoute(route: RouteData, indexes: number[]): GeoJSON.Fe
   return pointData(route, indexes, (index, splitPosition) => ({ index, label: String(splitPosition + 1) }));
 }
 
-function waypointData(route: RouteData): GeoJSON.FeatureCollection<GeoJSON.Point> {
+function waypointName(waypoint: Waypoint) {
+  return waypoint.name || `Waypoint ${waypoint.index + 1}`;
+}
+
+function shortWaypointLabel(label: string) {
+  return label.length > 26 ? `${label.slice(0, 23)}…` : label;
+}
+
+function formatWaypointTime(time: string | null) {
+  if (!time) return "—";
+  const date = new Date(time);
+  return Number.isNaN(date.getTime()) ? time : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function waypointPopupElement(route: RouteData, waypoint: Waypoint) {
+  const point = route.points[waypoint.nearestPointIndex];
+  const element = document.createElement("div");
+  element.className = "min-w-48 max-w-64 text-xs";
+
+  const title = document.createElement("div");
+  title.className = "mb-1 font-semibold";
+  title.textContent = waypointName(waypoint);
+  element.appendChild(title);
+
+  const meta = document.createElement("div");
+  meta.className = "font-mono text-[11px] text-muted-foreground";
+  meta.textContent = `${point ? formatDistance(point.distance) : "—"} · ${formatElevation(waypoint.ele ?? point?.ele ?? null)}`;
+  element.appendChild(meta);
+
+  const time = formatWaypointTime(waypoint.time);
+  if (time !== "—") {
+    const timeElement = document.createElement("div");
+    timeElement.className = "mt-1 text-[11px] text-muted-foreground";
+    timeElement.textContent = time;
+    element.appendChild(timeElement);
+  }
+
+  if (waypoint.desc) {
+    const description = document.createElement("p");
+    description.className = "mt-2 leading-snug";
+    description.textContent = waypoint.desc;
+    element.appendChild(description);
+  }
+
+  return element;
+}
+
+function waypointData(route: RouteData, activeWaypointIndex: number | null): GeoJSON.FeatureCollection<GeoJSON.Point> {
   return {
     type: "FeatureCollection",
     features: route.waypoints.map(waypoint => ({
       type: "Feature",
-      properties: { index: waypoint.index, label: waypoint.name ?? "" },
+      properties: {
+        index: waypoint.index,
+        label: waypoint.name ? shortWaypointLabel(waypoint.name) : "",
+        selected: waypoint.index === activeWaypointIndex,
+      },
       geometry: { type: "Point", coordinates: [waypoint.lon, waypoint.lat] },
     })),
   };
@@ -1511,6 +1781,19 @@ function markerIndexAtPoint(map: MapLibreMap, point: maplibregl.PointLike) {
       [x + 10, y + 10],
     ],
     { layers: ["split-points", "hover-point"] },
+  );
+  const index = Number(features[0]?.properties?.index);
+  return Number.isInteger(index) ? index : null;
+}
+
+function waypointIndexAtPoint(map: MapLibreMap, point: maplibregl.PointLike) {
+  const [x, y] = Array.isArray(point) ? point : [point.x, point.y];
+  const features = map.queryRenderedFeatures(
+    [
+      [x - 10, y - 10],
+      [x + 10, y + 10],
+    ],
+    { layers: ["waypoint-points", "waypoint-labels"] },
   );
   const index = Number(features[0]?.properties?.index);
   return Number.isInteger(index) ? index : null;

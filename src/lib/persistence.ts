@@ -4,6 +4,7 @@ export type SavedRouteState = {
   fileName: string;
   splits: number[];
   activeSegmentId: number | null;
+  showWaypoints: boolean;
 };
 
 type RoutePersistenceRecord = {
@@ -12,6 +13,7 @@ type RoutePersistenceRecord = {
   fileName: string;
   splits: number[];
   activeSegmentId: number | null;
+  showWaypoints?: boolean;
 };
 
 type StoredRouteState = RoutePersistenceRecord & {
@@ -34,7 +36,8 @@ export function isSavedRouteState(value: unknown): value is SavedRouteState {
     && record.fileName.length > 0
     && Array.isArray(record.splits)
     && record.splits.every(split => Number.isInteger(split))
-    && (record.activeSegmentId === null || Number.isInteger(record.activeSegmentId));
+    && (record.activeSegmentId === null || Number.isInteger(record.activeSegmentId))
+    && (record.showWaypoints === undefined || typeof record.showWaypoints === "boolean");
 }
 
 export function sanitizeSplits(splits: number[], pointCount: number) {
@@ -66,6 +69,7 @@ export async function loadSavedRouteState() {
       fileName: stored.fileName,
       splits: stored.splits,
       activeSegmentId: stored.activeSegmentId,
+      showWaypoints: stored.showWaypoints ?? true,
     } satisfies SavedRouteState;
   } catch {
     return null;
