@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   buildSegments,
+  calculateCumulativeSpeedTimes,
   calculateElevationChange,
   calculateProfileSlopeSegments,
   calculateRouteSpeed,
@@ -233,7 +234,7 @@ export function App() {
               <StatPill label="Dist" value={formatDistance(route.totalDistance)} help="Total route distance from the GPX track points." />
               {routeSpeed && (
                 <>
-                  <StatPill label="Time" value={formatMovingTime(routeSpeed.movingTimeSeconds)} help="Estimated moving time from your speed settings." />
+                  <StatPill label="Est. time" value={formatMovingTime(routeSpeed.movingTimeSeconds)} help="Estimated moving time from your speed settings." />
                   <StatPill label="Est. speed" value={formatSpeed(routeSpeed.averageSpeedMps)} help="Estimated average moving speed from your speed settings." />
                 </>
               )}
@@ -346,6 +347,7 @@ export function App() {
                   segments={segments}
                   splits={splits}
                   hoverIndex={hoverIndex}
+                  speedSettings={speedModelEnabled ? speedSettings : null}
                   showWaypoints={showWaypoints}
                   activeWaypointIndex={activeWaypointIndex}
                   activeSegment={activeSegment}
@@ -1083,6 +1085,7 @@ function ElevationProfile({
   segments,
   splits,
   hoverIndex,
+  speedSettings,
   showWaypoints,
   activeWaypointIndex,
   activeSegment,
@@ -1095,6 +1098,7 @@ function ElevationProfile({
   segments: Segment[];
   splits: number[];
   hoverIndex: number | null;
+  speedSettings: SpeedModelSettings | null;
   showWaypoints: boolean;
   activeWaypointIndex: number | null;
   activeSegment: Segment | null;
@@ -1184,6 +1188,13 @@ function ElevationProfile({
     return ascent;
   }, [hover, hoverSegment, points]);
   const hoverSlope = hover ? slopeDetailAtDistance(visiblePoints, profileSlopeSegments, hover.distance) : null;
+  const trackTimes = useMemo(() => speedSettings ? calculateCumulativeSpeedTimes(points, speedSettings) : [], [points, speedSettings]);
+  const segmentTimes = useMemo(
+    () => speedSettings ? new Map(segments.map(segment => [segment.id, calculateCumulativeSpeedTimes(points, speedSettings, segment.start, segment.end)])) : new Map<number, number[]>(),
+    [points, segments, speedSettings],
+  );
+  const hoverTime = hover && speedSettings ? trackTimes[hover.index] : null;
+  const hoverSegmentTime = hover && hoverSegment && speedSettings ? segmentTimes.get(hoverSegment.id)?.[hover.index] ?? null : null;
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
   const hoverSlopeLabel = getSlopeLabel(hoverSlope?.slope ?? 0);
   const hoverSlopeName = getSlopeName(hoverSlope?.slope ?? 0);
@@ -1207,9 +1218,11 @@ function ElevationProfile({
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
   const hoverLabelWidth = 220;
+  const trackSectionHeight = speedSettings ? 57 : 44;
   const hoverSectionHeight = 44;
+  const segmentSectionHeight = speedSettings && hoverSegment ? 57 : hoverSectionHeight;
   const hoverSectionGap = 4;
-  const hoverLabelHeight = hoverSegment ? 152 : 104;
+  const hoverLabelHeight = (hoverSegment ? 152 : 104) + (speedSettings ? (hoverSegment ? 26 : 13) : 0);
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
   const preferredHoverLabelY = hoverY < height / 2 ? hoverY + 14 : hoverY - hoverLabelHeight - 8;
   const hoverLabelMaxY = Math.max(padTop + 6, height - hoverLabelHeight - 6);
@@ -1217,8 +1230,8 @@ function ElevationProfile({
   const hoverLabelLeft = hoverLabelX + 12;
   const hoverValueRight = hoverLabelX + hoverLabelWidth - 12;
   const trackSectionY = hoverLabelY + 8;
-  const segmentSectionY = trackSectionY + hoverSectionHeight + hoverSectionGap;
-  const slopeSectionY = hoverSegment ? segmentSectionY + hoverSectionHeight + hoverSectionGap : segmentSectionY;
+  const segmentSectionY = trackSectionY + trackSectionHeight + hoverSectionGap;
+  const slopeSectionY = hoverSegment ? segmentSectionY + segmentSectionHeight + hoverSectionGap : segmentSectionY;
   const laidOutWaypoints = useMemo(() => {
     const boxes: Array<{ left: number; right: number; top: number; bottom: number }> = [];
 
@@ -1282,6 +1295,19 @@ function ElevationProfile({
     if (!route) return;
     const current = hoverIndex ?? 0;
     onHover(Math.max(0, Math.min(route.points.length - 1, current + step)));
+  }
+
+  function renderTooltipMetric(y: number, label: string, value: ReactNode) {
+    return (
+      <>
+        <text x={hoverLabelLeft} y={y} className="fill-muted-foreground font-mono text-[9px] uppercase">
+          {label}
+        </text>
+        <text x={hoverValueRight} y={y} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+          {value}
+        </text>
+      </>
+    );
   }
 
   return (
@@ -1410,7 +1436,7 @@ function ElevationProfile({
           <circle cx={hoverX} cy={hoverY} r="5" className="fill-primary stroke-background" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           <g>
             <rect x={hoverLabelX} y={hoverLabelY} width={hoverLabelWidth} height={hoverLabelHeight} rx="3" className="fill-background stroke-border" vectorEffect="non-scaling-stroke" />
-            <rect x={hoverLabelX + 6} y={trackSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+            <rect x={hoverLabelX + 6} y={trackSectionY} width={hoverLabelWidth - 12} height={trackSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
             <text x={hoverLabelLeft} y={trackSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
               Track point
             </text>
@@ -1426,9 +1452,12 @@ function ElevationProfile({
             <text x={hoverValueRight} y={trackSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
               {formatElevation(hover.ele)}
             </text>
+            {speedSettings && (
+              renderTooltipMetric(trackSectionY + 53, "Est. time", hoverTime === null ? "—" : formatMovingTime(hoverTime))
+            )}
             {hoverSegment && (
               <>
-                <rect x={hoverLabelX + 6} y={segmentSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+                <rect x={hoverLabelX + 6} y={segmentSectionY} width={hoverLabelWidth - 12} height={segmentSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
                 <text x={hoverLabelLeft} y={segmentSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
                   {hoverSegment.name}
                 </text>
@@ -1444,6 +1473,9 @@ function ElevationProfile({
                 <text x={hoverValueRight} y={segmentSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
                   {hoverClimb === null ? "—" : formatElevation(hoverClimb)}
                 </text>
+                {speedSettings && (
+                  renderTooltipMetric(segmentSectionY + 53, "Est. time", hoverSegmentTime === null ? "—" : formatMovingTime(hoverSegmentTime))
+                )}
               </>
             )}
             <rect x={hoverLabelX + 6} y={slopeSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
@@ -1666,7 +1698,7 @@ function SegmentRow({
               {speed && (
                 <>
                   <SegmentMetric
-                    label="Time"
+                    label="Est. time"
                     value={formatMovingTime(speed.movingTimeSeconds)}
                     help="Estimated moving time for this segment with the custom speed model."
                   />

@@ -198,6 +198,31 @@ export function calculateRouteSpeed(points: Pick<RoutePoint, "distance" | "ele" 
   return calculateSpeedEstimate(points, sanitizeSpeedSettings(rawSettings), 0, points.length - 1);
 }
 
+export function calculateCumulativeSpeedTimes(points: Pick<RoutePoint, "distance" | "ele" | "sourceSegment">[], rawSettings: SpeedModelSettings, startIndex = 0, endIndex = points.length - 1): number[] {
+  const times = Array(points.length).fill(0);
+  const settings = sanitizeSpeedSettings(rawSettings);
+  let movingTimeSeconds = 0;
+  let previousSpeed = Math.min(ROAD_BIKE.maxDescentSpeedMps, 7);
+  let elevationBuffer = 0;
+
+  for (let index = startIndex; index < endIndex; index++) {
+    const start = points[index]!;
+    const end = points[index + 1]!;
+    const distance = end.distance - start.distance;
+    if (distance > 0 && start.sourceSegment === end.sourceSegment) {
+      const rawElevation = (end.ele ?? start.ele ?? 0) - (start.ele ?? end.ele ?? 0);
+      const effectiveElevation = bufferedElevationDelta(rawElevation, distance, elevationBuffer);
+      elevationBuffer = effectiveElevation.buffer;
+      const speed = segmentSpeed(distance, effectiveElevation.delta, settings, previousSpeed);
+      movingTimeSeconds += distance / speed;
+      previousSpeed = speed;
+    }
+    times[index + 1] = movingTimeSeconds;
+  }
+
+  return times;
+}
+
 function calculateSpeedEstimate(points: Pick<RoutePoint, "distance" | "ele" | "sourceSegment">[], settings: SpeedModelSettings, startIndex: number, endIndex: number): SpeedEstimate {
   let movingTimeSeconds = 0;
   let movingDistance = 0;

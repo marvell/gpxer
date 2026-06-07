@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { DOMParser } from "linkedom";
 import {
   buildSegments,
+  calculateCumulativeSpeedTimes,
   calculateElevationChange,
   calculateProfileSlopeDetails,
   calculateProfileSlopeSegments,
@@ -215,6 +216,20 @@ test("estimates segment speed from segment bounds", () => {
 
   expect(first.movingTimeSeconds).toBeGreaterThan(0);
   expect(second.movingTimeSeconds).toBeGreaterThan(first.movingTimeSeconds);
+});
+
+test("calculates cumulative speed times from segment bounds", () => {
+  const points = [
+    point(0, 100),
+    point(1000, 100),
+    point(2000, 200),
+  ];
+  const times = calculateCumulativeSpeedTimes(points, DEFAULT_SPEED_MODEL_SETTINGS, 1, 2);
+  const segment = calculateSegmentSpeed(points, { start: 1, end: 2 }, DEFAULT_SPEED_MODEL_SETTINGS);
+
+  expect(times[0]).toBe(0);
+  expect(times[1]).toBe(0);
+  expect(times[2]).toBeCloseTo(segment.movingTimeSeconds, 5);
 });
 
 test("excludes skipped track segment gaps from average speed", () => {
