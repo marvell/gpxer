@@ -27,7 +27,7 @@ import {
   sanitizeSplits,
   saveRouteState,
 } from "@/lib/persistence";
-import { Download, Route, Trash2, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -40,6 +40,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [splits, setSplits] = useState<number[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [showWaypoints, setShowWaypoints] = useState(true);
   const [activeSegmentId, setActiveSegmentId] = useState<number | null>(null);
   const [mapDistanceRange, setMapDistanceRange] = useState<DistanceRange | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
@@ -119,6 +120,7 @@ export function App() {
       setSourceGpxText(gpxText);
       setRoute(parsed);
       setSplits([]);
+      setShowWaypoints(true);
       setHoverIndexIfChanged(null);
       setMapDistanceRangeIfChanged(null);
       setActiveSegmentId(1);
@@ -138,6 +140,7 @@ export function App() {
     setRoute(null);
     setSourceGpxText(null);
     setSplits([]);
+    setShowWaypoints(true);
     setHoverIndexIfChanged(null);
     setMapDistanceRangeIfChanged(null);
     setActiveSegmentId(null);
@@ -264,6 +267,7 @@ export function App() {
                 route={route}
                 splits={splits}
                 hoverIndex={hoverIndex}
+                showWaypoints={showWaypoints}
                 activeSegment={activeSegment}
                 onHover={setHoverIndexIfChanged}
                 onToggleSplit={toggleSplit}
@@ -273,6 +277,21 @@ export function App() {
                 <span className={HINT_CHIP_CLASS}>Click map or profile to split</span>
                 <span className={HINT_CHIP_CLASS}>Click split marker to remove</span>
               </div>
+              {route.waypoints.length > 0 && (
+                <div className="absolute left-3 top-3">
+                  <HelpTooltip content={showWaypoints ? "Hide waypoints on the map." : "Show waypoints on the map."}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="bg-background/90 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur hover:text-foreground"
+                      onClick={() => setShowWaypoints(current => !current)}
+                    >
+                      {showWaypoints ? <EyeOff /> : <Eye />}
+                      {showWaypoints ? "Hide waypoints" : "Show waypoints"}
+                    </Button>
+                  </HelpTooltip>
+                </div>
+              )}
             </div>
             <div className="flex min-h-[160px] min-w-0 flex-col bg-background">
               <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
@@ -539,6 +558,7 @@ function RouteMap({
   route,
   splits,
   hoverIndex,
+  showWaypoints,
   activeSegment,
   onHover,
   onToggleSplit,
@@ -547,6 +567,7 @@ function RouteMap({
   route: RouteData | null;
   splits: number[];
   hoverIndex: number | null;
+  showWaypoints: boolean;
   activeSegment: Segment | null;
   onHover: (index: number | null) => void;
   onToggleSplit: (index: number) => void;
@@ -565,7 +586,7 @@ function RouteMap({
     [route, activeSegment],
   );
   const splitPointData = useMemo(() => (route ? splitPointDataForRoute(route, splits) : emptyPoints().data), [route, splits]);
-  const waypointPointData = useMemo(() => (route ? waypointData(route) : emptyPoints().data), [route]);
+  const waypointPointData = useMemo(() => (route && showWaypoints ? waypointData(route) : emptyPoints().data), [route, showWaypoints]);
   const hoverPointData = useMemo(
     () => (route ? pointData(route, hoverIndex === null ? [] : [hoverIndex]) : emptyPoints().data),
     [route, hoverIndex],
