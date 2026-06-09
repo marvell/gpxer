@@ -1323,14 +1323,14 @@ function ElevationProfile({
   }, [points, profileRange, route, showWaypoints]);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
-  const hoverLabelWidth = 304;
-  const hoverLabelPadding = 10;
+  const hoverLabelWidth = 264;
+  const hoverLabelPadding = 8;
   const tooltipMetricColumns = 3;
-  const tooltipMetricGap = 7;
+  const tooltipMetricGap = 5;
   const tooltipMetricWidth = (hoverLabelWidth - hoverLabelPadding * 2 - tooltipMetricGap * (tooltipMetricColumns - 1)) / tooltipMetricColumns;
-  const tooltipHeaderHeight = 16;
-  const tooltipMetricHeight = 32;
-  const tooltipSectionGap = 7;
+  const tooltipHeaderHeight = 13;
+  const tooltipMetricHeight = 26;
+  const tooltipSectionGap = 5;
   const trackSectionHeight = tooltipHeaderHeight + tooltipMetricHeight;
   const segmentSectionHeight = hoverSegment ? tooltipHeaderHeight + tooltipMetricHeight : 0;
   const slopeSectionHeight = tooltipHeaderHeight + tooltipMetricHeight;
@@ -1425,11 +1425,10 @@ function ElevationProfile({
     const metricX = tooltipMetricX(column);
     return (
       <g>
-        <rect x={metricX} y={y} width={tooltipMetricWidth} height="28" rx="2.5" className="fill-muted/70 stroke-border" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
-        <text x={metricX + 6} y={y + 9} className="fill-muted-foreground font-mono text-[7px] font-bold uppercase tracking-wide">
+        <text x={metricX + 5} y={y + 8} className="fill-muted-foreground font-mono text-[6.5px] font-bold uppercase tracking-wide">
           {label}
         </text>
-        <text x={metricX + 6} y={y + 23} className="fill-foreground font-mono text-[12px] font-bold">
+        <text x={metricX + 5} y={y + 20} className="fill-foreground font-mono text-[10.5px] font-bold">
           {value}
         </text>
       </g>
