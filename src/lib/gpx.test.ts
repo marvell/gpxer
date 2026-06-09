@@ -19,6 +19,7 @@ import {
   parseGpx,
   type RoutePoint,
   type SpeedModelSettings,
+  updateGpxRouteName,
 } from "./gpx";
 
 Object.assign(globalThis, {
@@ -334,6 +335,45 @@ test("exports a split-point waypoint only once", () => {
 
   expect(exportSegmentGpx(route, segments[0]!)).toContain("<name>Split point</name>");
   expect(exportSegmentGpx(route, segments[1]!)).not.toContain("<name>Split point</name>");
+});
+
+test("updates existing GPX track name", () => {
+  const updated = updateGpxRouteName(gpxWithWaypoints(), "New route");
+  const route = parseGpx(updated, "route.gpx");
+
+  expect(route.name).toBe("New route");
+  expect(updated).toContain("<trk><name>New route</name><trkseg>");
+});
+
+test("creates GPX track name when missing", () => {
+  const updated = updateGpxRouteName(`
+    <gpx version="1.1" creator="test">
+      <trk><trkseg>
+        <trkpt lat="10" lon="20" />
+        <trkpt lat="10.1" lon="20.1" />
+      </trkseg></trk>
+    </gpx>
+  `, "Created name");
+  const route = parseGpx(updated, "route.gpx");
+
+  expect(route.name).toBe("Created name");
+  expect(updated).toContain("<trk><name>Created name</name><trkseg>");
+});
+
+test("exports segments with updated GPX route name", () => {
+  const updated = updateGpxRouteName(gpxWithWaypoints(), "Updated export");
+  const route = parseGpx(updated, "route.gpx");
+  const segments = buildSegments(route.points, [1]);
+
+  expect(exportSegmentGpx(route, segments[0]!)).toContain("<name>Updated export - Segment 1</name>");
+});
+
+test("keeps renamed GPX valid after repeated name updates", () => {
+  const first = updateGpxRouteName(gpxWithWaypoints(), "First name");
+  const second = updateGpxRouteName(first, "Second name");
+
+  expect(second.match(/<\?xml/g)).toHaveLength(1);
+  expect(parseGpx(second, "route.gpx").name).toBe("Second name");
 });
 
 function gpxWithWaypoints() {

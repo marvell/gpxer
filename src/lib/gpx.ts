@@ -94,10 +94,7 @@ export const SPEED_MODEL_LIMITS = {
 } as const;
 
 export function parseGpx(text: string, fileName: string): RouteData {
-  const parser = new DOMParser();
-  const document = parser.parseFromString(text, "application/xml");
-  const error = document.querySelector("parsererror");
-  if (error) throw new Error("GPX file is not valid XML.");
+  const document = parseGpxDocument(text);
 
   const sourceSegments = Array.from(document.querySelectorAll("trkseg")).map((trkseg, sourceSegment) => ({
     sourceSegment,
@@ -146,7 +143,7 @@ export function parseGpx(text: string, fileName: string): RouteData {
   for (const waypoint of waypoints) extendBounds(bounds, waypoint.lon, waypoint.lat);
 
   return {
-    name: document.querySelector("trk > name, metadata > name, name")?.textContent?.trim() || baseName(fileName),
+    name: routeName(document) || baseName(fileName),
     fileName,
     document,
     points,
@@ -267,7 +264,6 @@ export function formatSpeed(mps: number) {
 }
 
 export function exportSegmentGpx(route: RouteData, segment: Segment): string {
-  const serializer = new XMLSerializer();
   const doc = document.implementation.createDocument(GPX_NAMESPACE, "gpx");
   const root = doc.documentElement;
   root.setAttribute("version", route.document.documentElement.getAttribute("version") || "1.1");
@@ -290,7 +286,18 @@ export function exportSegmentGpx(route: RouteData, segment: Segment): string {
 
   trk.append(name, trkseg);
   root.appendChild(trk);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n${serializer.serializeToString(doc)}\n`;
+  return serializeGpxDocument(doc);
+}
+
+export function updateGpxRouteName(text: string, name: string): string {
+  const cleanName = name.trim();
+  if (!cleanName) throw new Error("Route name cannot be empty.");
+
+  const document = parseGpxDocument(text);
+  const target = routeNameElement(document) ?? createTrackNameElement(document);
+  target.textContent = cleanName;
+
+  return serializeGpxDocument(document);
 }
 
 export function downloadText(fileName: string, text: string) {
@@ -300,6 +307,41 @@ export function downloadText(fileName: string, text: string) {
   link.download = fileName;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function createTrackNameElement(document: Document) {
+  const track = document.querySelector("trk");
+  if (!track) throw new Error("GPX file has no track.");
+  const name = document.createElementNS(track.namespaceURI || GPX_NAMESPACE, "name");
+  track.insertBefore(name, track.firstChild);
+  return name;
+}
+
+function parseGpxDocument(text: string) {
+  const document = new DOMParser().parseFromString(text, "application/xml");
+  const error = document.querySelector("parsererror");
+  if (error) throw new Error("GPX file is not valid XML.");
+  return document;
+}
+
+function serializeGpxDocument(document: Document) {
+  const xml = new XMLSerializer().serializeToString(document).replace(/^\s*<\?xml[^?]*\?>\s*/i, "");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${xml}\n`;
+}
+
+function routeName(document: Document) {
+  return routeNameElement(document)?.textContent?.trim() || document.querySelector("name")?.textContent?.trim() || "";
+}
+
+function routeNameElement(document: Document) {
+  const trackName = directChild(document.querySelector("trk"), "name");
+  if (trackName) return trackName;
+  return directChild(document.querySelector("metadata"), "name");
+}
+
+function directChild(parent: Element | null, tagName: string) {
+  if (!parent) return null;
+  return Array.from(parent.children).find(child => child.localName === tagName) ?? null;
 }
 
 export function nearestPoint(points: RoutePoint[], distanceKm: number) {

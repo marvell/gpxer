@@ -33,6 +33,7 @@ import {
   type SpeedEstimate,
   type SpeedModelSettings,
   type Waypoint,
+  updateGpxRouteName,
 } from "@/lib/gpx";
 import {
   clearSavedRouteState,
@@ -45,7 +46,7 @@ import {
   type SavedSpeedSettingsState,
 } from "@/lib/persistence";
 import { clamp } from "@/lib/utils";
-import { Download, Eye, EyeOff, Route, Trash2, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, Pencil, Route, Trash2, Upload, X } from "lucide-react";
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -233,6 +234,19 @@ export function App() {
     });
   }
 
+  function updateRouteName(name: string) {
+    if (!route || !sourceGpxText) return;
+    try {
+      const updatedText = updateGpxRouteName(sourceGpxText, name);
+      const nextName = name.trim();
+      setSourceGpxText(updatedText);
+      setRoute(current => current ? { ...current, name: nextName } : current);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not update GPX route name.");
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={700} skipDelayDuration={0}>
       <main className="flex h-screen flex-col overflow-hidden bg-muted/40 text-sm">
@@ -243,7 +257,11 @@ export function App() {
             </div>
             <div className="min-w-0 leading-tight">
               <div className="whitespace-nowrap text-sm font-semibold tracking-tight">GPXer</div>
-              <div className="max-w-[200px] truncate text-[11px] text-muted-foreground">{route?.name ?? "No file loaded"}</div>
+              {route ? (
+                <RouteNameEditor name={route.name} onChange={updateRouteName} />
+              ) : (
+                <div className="max-w-[200px] truncate text-[11px] text-muted-foreground">No file loaded</div>
+              )}
             </div>
           </div>
 
@@ -385,7 +403,6 @@ export function App() {
               onEnabledChange={enabled => setSpeedPreferences(current => current.enabled === enabled ? current : { ...current, enabled })}
               onSettingsChange={settings => setSpeedPreferences(current => current.settings === settings ? current : { ...current, settings })}
             />
-
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
               <SectionTitle title="Segments" help="Click a segment to highlight it on the map and profile." />
               <Badge variant="secondary" className="font-mono tabular-nums">{segments.length} total</Badge>
@@ -543,6 +560,78 @@ function StatPill({ label, value, help, last }: { label: string; value: string; 
         <span className="font-mono text-xs font-semibold tabular-nums leading-tight">{value}</span>
       </div>
     </HelpTooltip>
+  );
+}
+
+function RouteNameEditor({ name, onChange }: { name: string; onChange: (name: string) => void }) {
+  const inputId = useId();
+  const cancelingRef = useRef(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+
+  function commit() {
+    if (cancelingRef.current) {
+      cancelingRef.current = false;
+      return;
+    }
+    const next = draft.trim();
+    if (!next) {
+      setDraft(name);
+      setEditing(false);
+      return;
+    }
+    if (next !== name) onChange(next);
+    setEditing(false);
+  }
+
+  function startEditing() {
+    cancelingRef.current = false;
+    setDraft(name);
+    setEditing(true);
+  }
+
+  function cancel() {
+    cancelingRef.current = true;
+    setDraft(name);
+    setEditing(false);
+  }
+
+  return (
+    <div className="group flex max-w-[240px] items-center gap-1">
+      {!editing ? (
+        <>
+          <div className="truncate text-[11px] text-muted-foreground">{name}</div>
+          <HelpTooltip content="Edit the GPX track name used in saved data and exported segment files.">
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Edit route name"
+              className="size-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              onClick={startEditing}
+            >
+              <Pencil className="size-3" />
+            </Button>
+          </HelpTooltip>
+        </>
+      ) : (
+        <Input
+          id={inputId}
+          aria-label="Route name"
+          value={draft}
+          autoFocus
+          onChange={event => setDraft(event.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={event => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancel();
+            }
+          }}
+          className="h-7 w-[240px] text-xs"
+        />
+      )}
+    </div>
   );
 }
 
