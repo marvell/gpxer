@@ -1562,6 +1562,9 @@ function ElevationProfile({
             </g>
           );
         })}
+      <text x={padLeft} y={height - 7} textAnchor="start" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.start)}</text>
+      <text x={padLeft + plotWidth / 2} y={height - 7} textAnchor="middle" className="fill-muted-foreground font-mono text-[10px]">{formatDistance((profileRange.start + profileRange.end) / 2)}</text>
+      <text x={plotRight} y={height - 7} textAnchor="end" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.end)}</text>
       {hover && (
         <>
           <line x1={hoverX} x2={hoverX} y1={padTop} y2={plotBottom} className="stroke-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
@@ -1600,9 +1603,6 @@ function ElevationProfile({
           </g>
         </>
       )}
-      <text x={padLeft} y={height - 7} textAnchor="start" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.start)}</text>
-      <text x={padLeft + plotWidth / 2} y={height - 7} textAnchor="middle" className="fill-muted-foreground font-mono text-[10px]">{formatDistance((profileRange.start + profileRange.end) / 2)}</text>
-      <text x={plotRight} y={height - 7} textAnchor="end" className="fill-muted-foreground font-mono text-[10px]">{formatDistance(profileRange.end)}</text>
     </svg>
     {laidOutWaypoints.map(waypoint => (
       <button
