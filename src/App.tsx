@@ -21,8 +21,6 @@ import {
   formatMovingTime,
   formatSpeed,
   getSlopeColor,
-  getSlopeLabel,
-  getSlopeName,
   nearestPoint,
   parseGpx,
   safeFileName,
@@ -1214,6 +1212,9 @@ function ElevationProfile({
   onToggleSplit: (index: number) => void;
   onSelectWaypoint: (index: number | null) => void;
 }) {
+  const tooltipId = useId();
+  const tooltipFillId = `${tooltipId}-profile-tooltip-fill`;
+  const tooltipShadowId = `${tooltipId}-profile-tooltip-shadow`;
   const containerRef = useRef<HTMLDivElement>(null);
   const climbCacheRef = useRef<{ points: RouteData["points"]; values: Map<string, number> }>({ points: [], values: new Map() });
   const [size, setSize] = useState({ width: 1200, height: 180 });
@@ -1303,8 +1304,6 @@ function ElevationProfile({
   const hoverTime = hover && speedSettings ? trackTimes[hover.index] : null;
   const hoverSegmentTime = hover && hoverSegment && speedSettings ? segmentTimes.get(hoverSegment.id)?.[hover.index] ?? null : null;
   const hoverSlopeColor = getSlopeColor(hoverSlope?.slope ?? 0);
-  const hoverSlopeLabel = getSlopeLabel(hoverSlope?.slope ?? 0);
-  const hoverSlopeName = getSlopeName(hoverSlope?.slope ?? 0);
   const visibleWaypoints = useMemo(() => {
     if (!route || !showWaypoints) return [];
     return route.waypoints
@@ -1324,21 +1323,27 @@ function ElevationProfile({
   }, [points, profileRange, route, showWaypoints]);
   const hoverX = hover ? x(hover.distance) : 0;
   const hoverY = hover ? y(hover.ele) : 0;
-  const hoverLabelWidth = 220;
-  const trackSectionHeight = speedSettings ? 57 : 44;
-  const hoverSectionHeight = 44;
-  const segmentSectionHeight = speedSettings && hoverSegment ? 57 : hoverSectionHeight;
-  const hoverSectionGap = 4;
-  const hoverLabelHeight = (hoverSegment ? 152 : 104) + (speedSettings ? (hoverSegment ? 26 : 13) : 0);
+  const hoverLabelWidth = 304;
+  const hoverLabelPadding = 10;
+  const tooltipMetricColumns = 3;
+  const tooltipMetricGap = 7;
+  const tooltipMetricWidth = (hoverLabelWidth - hoverLabelPadding * 2 - tooltipMetricGap * (tooltipMetricColumns - 1)) / tooltipMetricColumns;
+  const tooltipHeaderHeight = 16;
+  const tooltipMetricHeight = 32;
+  const tooltipSectionGap = 7;
+  const trackSectionHeight = tooltipHeaderHeight + tooltipMetricHeight;
+  const segmentSectionHeight = hoverSegment ? tooltipHeaderHeight + tooltipMetricHeight : 0;
+  const slopeSectionHeight = tooltipHeaderHeight + tooltipMetricHeight;
+  const hoverLabelHeight = hoverLabelPadding * 2 + trackSectionHeight + (hoverSegment ? tooltipSectionGap + segmentSectionHeight : 0) + tooltipSectionGap + slopeSectionHeight;
   const hoverLabelX = Math.min(width - hoverLabelWidth - 8, Math.max(padLeft + 8, hoverX + 10));
   const preferredHoverLabelY = hoverY < height / 2 ? hoverY + 14 : hoverY - hoverLabelHeight - 8;
   const hoverLabelMaxY = Math.max(padTop + 6, height - hoverLabelHeight - 6);
   const hoverLabelY = Math.min(hoverLabelMaxY, Math.max(padTop + 6, preferredHoverLabelY));
-  const hoverLabelLeft = hoverLabelX + 12;
-  const hoverValueRight = hoverLabelX + hoverLabelWidth - 12;
-  const trackSectionY = hoverLabelY + 8;
-  const segmentSectionY = trackSectionY + trackSectionHeight + hoverSectionGap;
-  const slopeSectionY = hoverSegment ? segmentSectionY + segmentSectionHeight + hoverSectionGap : segmentSectionY;
+  const hoverLabelLeft = hoverLabelX + hoverLabelPadding;
+  const hoverValueRight = hoverLabelX + hoverLabelWidth - hoverLabelPadding;
+  const trackSectionY = hoverLabelY + hoverLabelPadding;
+  const segmentSectionY = trackSectionY + trackSectionHeight + tooltipSectionGap;
+  const slopeSectionY = hoverSegment ? segmentSectionY + segmentSectionHeight + tooltipSectionGap : segmentSectionY;
   const laidOutWaypoints = useMemo(() => {
     const boxes: Array<{ left: number; right: number; top: number; bottom: number }> = [];
 
@@ -1404,16 +1409,30 @@ function ElevationProfile({
     onHover(Math.max(0, Math.min(route.points.length - 1, current + step)));
   }
 
-  function renderTooltipMetric(y: number, label: string, value: ReactNode) {
+  function renderTooltipHeading(x: number, y: number, label: string) {
     return (
-      <>
-        <text x={hoverLabelLeft} y={y} className="fill-muted-foreground font-mono text-[9px] uppercase">
+      <text x={x} y={y} className="fill-primary font-mono text-[8px] font-bold uppercase tracking-[0.18em]">
+        {label}
+      </text>
+    );
+  }
+
+  function tooltipMetricX(column: number) {
+    return hoverLabelLeft + (tooltipMetricWidth + tooltipMetricGap) * column;
+  }
+
+  function renderTooltipMetric({ column, y, label, value }: { column: number; y: number; label: string; value: ReactNode }) {
+    const metricX = tooltipMetricX(column);
+    return (
+      <g>
+        <rect x={metricX} y={y} width={tooltipMetricWidth} height="28" rx="2.5" className="fill-muted/70 stroke-border" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
+        <text x={metricX + 6} y={y + 9} className="fill-muted-foreground font-mono text-[7px] font-bold uppercase tracking-wide">
           {label}
         </text>
-        <text x={hoverValueRight} y={y} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
+        <text x={metricX + 6} y={y + 23} className="fill-foreground font-mono text-[12px] font-bold">
           {value}
         </text>
-      </>
+      </g>
     );
   }
 
@@ -1465,6 +1484,13 @@ function ElevationProfile({
             </>
           )}
         </linearGradient>
+        <linearGradient id={tooltipFillId} x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stopColor="var(--background)" stopOpacity="0.99" />
+          <stop offset="100%" stopColor="var(--muted)" stopOpacity="0.99" />
+        </linearGradient>
+        <filter id={tooltipShadowId} x="-12%" y="-18%" width="124%" height="136%">
+          <feDropShadow dx="0" dy="7" stdDeviation="5" floodColor="rgb(15 23 42)" floodOpacity="0.18" />
+        </filter>
       </defs>
       <rect x="0" y="0" width={width} height={height} rx="0" className="fill-background" />
       {yTicks.map(tick => (
@@ -1542,69 +1568,36 @@ function ElevationProfile({
           <line x1={hoverX} x2={hoverX} y1={padTop} y2={plotBottom} className="stroke-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
           <circle cx={hoverX} cy={hoverY} r="5" className="fill-primary stroke-background" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           <g>
-            <rect x={hoverLabelX} y={hoverLabelY} width={hoverLabelWidth} height={hoverLabelHeight} rx="3" className="fill-background stroke-border" vectorEffect="non-scaling-stroke" />
-            <rect x={hoverLabelX + 6} y={trackSectionY} width={hoverLabelWidth - 12} height={trackSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
-            <text x={hoverLabelLeft} y={trackSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
-              Track point
-            </text>
-            <text x={hoverLabelLeft} y={trackSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
-              Distance
-            </text>
-            <text x={hoverValueRight} y={trackSectionY + 27} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
-              {formatDistance(hover.distance)}
-            </text>
-            <text x={hoverLabelLeft} y={trackSectionY + 40} className="fill-muted-foreground font-mono text-[9px] uppercase">
-              Elevation
-            </text>
-            <text x={hoverValueRight} y={trackSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
-              {formatElevation(hover.ele)}
-            </text>
+            <path
+              d={`M${hoverX},${hoverY} L${hoverLabelX < hoverX ? hoverLabelX + hoverLabelWidth : hoverLabelX},${hoverLabelY + 14}`}
+              className="stroke-primary/40"
+              strokeWidth="1"
+              strokeDasharray="3 3"
+              vectorEffect="non-scaling-stroke"
+            />
+            <rect x={hoverLabelX} y={hoverLabelY} width={hoverLabelWidth} height={hoverLabelHeight} rx="6" fill={`url(#${tooltipFillId})`} className="stroke-border" filter={`url(#${tooltipShadowId})`} vectorEffect="non-scaling-stroke" />
+            <rect x={hoverLabelX + 1} y={hoverLabelY + 1} width="4" height={hoverLabelHeight - 2} rx="2" fill={hoverSlopeColor} />
+            {renderTooltipHeading(hoverLabelLeft, trackSectionY + 10, "Track")}
+            {renderTooltipMetric({ column: 0, y: trackSectionY + 16, label: "Distance", value: formatDistance(hover.distance) })}
+            {renderTooltipMetric({ column: 1, y: trackSectionY + 16, label: "Elevation", value: formatElevation(hover.ele) })}
             {speedSettings && (
-              renderTooltipMetric(trackSectionY + 53, "Est. time", hoverTime === null ? "—" : formatMovingTime(hoverTime))
+              renderTooltipMetric({ column: 2, y: trackSectionY + 16, label: "Est. time", value: hoverTime === null ? "—" : formatMovingTime(hoverTime) })
             )}
             {hoverSegment && (
               <>
-                <rect x={hoverLabelX + 6} y={segmentSectionY} width={hoverLabelWidth - 12} height={segmentSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
-                <text x={hoverLabelLeft} y={segmentSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
-                  {hoverSegment.name}
-                </text>
-                <text x={hoverLabelLeft} y={segmentSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
-                  Distance
-                </text>
-                <text x={hoverValueRight} y={segmentSectionY + 27} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
-                  {hoverSegmentDistance === null ? "—" : formatDistance(hoverSegmentDistance)}
-                </text>
-                <text x={hoverLabelLeft} y={segmentSectionY + 40} className="fill-muted-foreground font-mono text-[9px] uppercase">
-                  Climb
-                </text>
-                <text x={hoverValueRight} y={segmentSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
-                  {hoverClimb === null ? "—" : formatElevation(hoverClimb)}
-                </text>
+                <line x1={hoverLabelLeft} x2={hoverValueRight} y1={segmentSectionY - 2} y2={segmentSectionY - 2} className="stroke-border" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
+                {renderTooltipHeading(hoverLabelLeft, segmentSectionY + 10, hoverSegment.name)}
+                {renderTooltipMetric({ column: 0, y: segmentSectionY + 16, label: "Distance", value: hoverSegmentDistance === null ? "—" : formatDistance(hoverSegmentDistance) })}
+                {renderTooltipMetric({ column: 1, y: segmentSectionY + 16, label: "Climb", value: hoverClimb === null ? "—" : formatElevation(hoverClimb) })}
                 {speedSettings && (
-                  renderTooltipMetric(segmentSectionY + 53, "Est. time", hoverSegmentTime === null ? "—" : formatMovingTime(hoverSegmentTime))
+                  renderTooltipMetric({ column: 2, y: segmentSectionY + 16, label: "Seg. time", value: hoverSegmentTime === null ? "—" : formatMovingTime(hoverSegmentTime) })
                 )}
               </>
             )}
-            <rect x={hoverLabelX + 6} y={slopeSectionY} width={hoverLabelWidth - 12} height={hoverSectionHeight} rx="2" className="fill-muted/35 stroke-border" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
-            <rect x={hoverLabelLeft} y={slopeSectionY + 6} width="8" height="8" fill={hoverSlopeColor} stroke="currentColor" className="text-border" vectorEffect="non-scaling-stroke" />
-            <text x={hoverLabelLeft + 14} y={slopeSectionY + 12} className="fill-muted-foreground font-mono text-[9px] font-bold uppercase">
-              {hoverSlopeName}
-            </text>
-            <text x={hoverValueRight} y={slopeSectionY + 12} textAnchor="end" className="fill-foreground font-mono text-[10px] font-bold">
-              {hoverSlopeLabel}
-            </text>
-            <text x={hoverLabelLeft} y={slopeSectionY + 27} className="fill-muted-foreground font-mono text-[9px] uppercase">
-              Distance
-            </text>
-            <text x={hoverValueRight} y={slopeSectionY + 27} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
-              {formatDistance(hoverSlope?.distance ?? 0)}
-            </text>
-            <text x={hoverLabelLeft} y={slopeSectionY + 40} className="fill-muted-foreground font-mono text-[9px] uppercase">
-              Avg slope
-            </text>
-            <text x={hoverValueRight} y={slopeSectionY + 40} textAnchor="end" className="fill-foreground font-mono text-[12px] font-bold">
-              {formatSlope(hoverSlope?.slope ?? 0)}
-            </text>
+            <line x1={hoverLabelLeft} x2={hoverValueRight} y1={slopeSectionY - 2} y2={slopeSectionY - 2} className="stroke-border" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
+            {renderTooltipHeading(hoverLabelLeft, slopeSectionY + 10, "Slope")}
+            {renderTooltipMetric({ column: 0, y: slopeSectionY + 16, label: "Span", value: formatDistance(hoverSlope?.distance ?? 0) })}
+            {renderTooltipMetric({ column: 1, y: slopeSectionY + 16, label: "Avg slope", value: formatSlope(hoverSlope?.slope ?? 0) })}
           </g>
         </>
       )}
